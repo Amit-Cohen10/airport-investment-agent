@@ -52,3 +52,13 @@ describe('streamChat SSE parsing', () => {
     expect(body).toEqual({ message: 'hello', session_id: 'abc' })
   })
 })
+
+describe('presentation helpers', async () => {
+  const { isNumericCell } = await import('../components/AirportCode')
+  it('right-aligns numeric cells, including percentile suffixes', () => {
+    for (const v of ['12.4%', '21.0M', '18.3 min', '19/233', '+0.5 pp', '18.3 min (p68)', '21.0% (p55)', 4]) {
+      expect(isNumericCell(v)).toBe(true)
+    }
+    for (const v of ['high', 'LAX', 'airside risk', 'Taxi-out']) expect(isNumericCell(v)).toBe(false)
+  })
+})

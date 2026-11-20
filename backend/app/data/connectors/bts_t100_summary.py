@@ -10,6 +10,7 @@ import httpx
 import pandas as pd
 
 from app.data.connectors.socrata import fetch_soda
+from app.data.validation import require_complete
 
 BASE_URL = "https://data.bts.gov"
 DATASET_ID = "r495-tyji"
@@ -44,11 +45,18 @@ def fetch(client: httpx.Client, since_year: int = 2019) -> pd.DataFrame:
     return normalize(raw)
 
 
+REQUIRED = ["departures", "passengers", "seats"]
+
+
 def normalize(raw: pd.DataFrame) -> pd.DataFrame:
     df = raw.rename(columns=COLUMNS)[list(COLUMNS.values())].copy()
     df["month"] = pd.to_datetime(df["month"]).dt.to_period("M").dt.to_timestamp()
     numeric = [c for c in df.columns if c not in ("airport", "month")]
-    df[numeric] = df[numeric].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    df[numeric] = df[numeric].apply(pd.to_numeric, errors="coerce")
+    # Required measurements must be present: a missing value is not a zero (it would read as "no traffic").
+    require_complete(df, REQUIRED, SOURCE_NAME)
+    optional = [c for c in numeric if c not in REQUIRED]
+    df[optional] = df[optional].fillna(0.0)  # e.g. no reported international service in that month
     df["airport"] = df["airport"].str.strip().str.upper()
     # Some airports appear more than once per month (multiple airport ids); collapse them.
     return df.groupby(["airport", "month"], as_index=False)[numeric].sum()

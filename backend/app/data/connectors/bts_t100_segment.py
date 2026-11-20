@@ -24,6 +24,7 @@ import httpx
 import pandas as pd
 
 from app.data.connectors.http import SourceUnavailableError, download_file, request_with_retry
+from app.data.validation import require_complete
 
 log = logging.getLogger(__name__)
 
@@ -93,6 +94,8 @@ def read_year(path: Path) -> pd.DataFrame:
         csv_name = next(n for n in zf.namelist() if n.upper().startswith("T_T100"))
         with zf.open(csv_name) as fh:
             df = pd.read_csv(fh, usecols=FIELDS, low_memory=False)
+    # Required measurements must be present: a missing value is not a zero.
+    require_complete(df, ["DEPARTURES_PERFORMED", "SEATS", "PASSENGERS", "DISTANCE"], SOURCE_NAME)
     df = df[df["DEPARTURES_PERFORMED"] > 0]
     df = df.rename(columns=str.lower).rename(
         columns={

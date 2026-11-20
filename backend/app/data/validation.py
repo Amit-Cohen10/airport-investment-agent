@@ -82,6 +82,13 @@ CONTRACTS: dict[str, TableContract] = {
 }
 
 
+def require_complete(df: pd.DataFrame, columns: list[str], source: str) -> None:
+    """Fail when a required measurement is missing at the source, before any fill or aggregation can hide it."""
+    missing = {c: int(n) for c, n in df[columns].isna().sum().items() if n}
+    if missing:
+        raise ValidationError(f"{source}: missing required values {missing}; refusing to treat them as zero")
+
+
 def validate(name: str, df: pd.DataFrame) -> None:
     contract = CONTRACTS[name]
     missing = [c for c in contract.required_columns if c not in df.columns]

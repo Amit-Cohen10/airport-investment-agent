@@ -27,15 +27,18 @@ NUMBER = re.compile(
 COMPOUND_TAIL = re.compile(r"-(?:month|year|day|week|hour|minute|quarter)s?\b", re.I)
 # Context that marks a 4-digit number as a calendar year rather than a count ("in 2025", "CY 2019").
 YEAR_BEFORE = re.compile(
-    r"(?:\b(?:CY|FY|in|since|by|through|from|to|of|until|during|before|after|year|vs\.?|"
-    r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?|[–(-])\s*$",
+    r"(?:\b(?:CY|FY|in|since|by|through|from|to|until|during|before|after|year|vs\.?|"
+    r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?|(?:%|percent)\s+of|[–(-])\s*$",
     re.I,
 )
 YEAR_AFTER = re.compile(
     r"(?:\s?Q[1-4]\b|\s?[–-]\s?\d{2,4}\b|\)|,?\s+(?:levels?|baseline|traffic|data|enplanements|figures?))", re.I
 )
-# Small integers are skipped only when they are list markers or "top N" / "step N" phrasing.
-SMALL_INT_BEFORE = re.compile(r"(?:^|\n)\s*$|\b(?:top|step|phase|option)\s+$", re.I)
+# Small integers are skipped only as real list markers ("1. ", "2) " at a line start) or in
+# "top N" / "step N" phrasing. A sentence that merely starts with a number is still a claim.
+LINE_START = re.compile(r"(?:^|\n)[ \t]*$")
+LIST_MARKER_AFTER = re.compile(r"[.)]\s")
+TOP_N_BEFORE = re.compile(r"\b(?:top|step|phase|option)\s+$", re.I)
 # Fields whose content echoes the model's own input or an error: never evidence.
 NON_EVIDENCE_KEYS = {"query", "error", "unresolved", "errors", "arguments", "unit"}
 RANGE_TAIL = re.compile(
@@ -84,26 +87,55 @@ class GroundingReport:
         }
 
 
-def confidence_overstated(
-    answer: str, tool_confidences: list[str], airport_confidences: dict[str, str] | None = None
-) -> bool:
-    """True when the answer states e.g. 'Confidence: High' but the analyses it used returned Medium/Low.
+LEVEL_FIRST = re.compile(r"^[\s*_\-•]*(?:high|medium|low)\b", re.I)
+# Words that tie a confidence clause to one analysis ("High for congestion; Medium for unmet demand").
+CLAUSE_TOPICS = {
+    "compare_congestion": re.compile(r"congest|delay|taxi", re.I),
+    "estimate_unmet_demand": re.compile(r"unmet|spill|demand model", re.I),
+    "analyze_route_mix": re.compile(r"long[- ]haul|route|distance", re.I),
+    "rank_expansion_candidates": re.compile(r"rank|score|expansion", re.I),
+    "explain_airport_score": re.compile(r"rank|score|expansion", re.I),
+    "get_live_status": re.compile(r"live|current|right now|weather", re.I),
+}
 
-    If the confidence statement names specific airports ("High for BOS"), it is compared with those
-    airports' own grades (a national ranking can mix High and Medium airports); otherwise with the
-    lowest grade of any analysis used in the turn.
+
+def confidence_overstated(
+    answer: str,
+    tool_confidences: list[str] | dict[str, str],
+    airport_confidences: dict[str, str] | None = None,
+) -> bool:
+    """True when any confidence claim in the answer exceeds what the analyses returned.
+
+    Every confidence statement is checked (an answer may state several, on several lines), clause by
+    clause: "High for SFO; Low for ANC" checks High against SFO's own grade and Low against ANC's;
+    "High for congestion" checks against the congestion analysis. A clause tied to neither is compared
+    with the lowest grade among the analyses used.
     """
-    stated = ANSWER_CONFIDENCE.search(answer)
-    if not stated:
-        return False
-    line_end = answer.find("\n", stated.end())
-    statement = answer[stated.start() : line_end if line_end != -1 else len(answer)]
-    named = [c for c in re.findall(r"\b[A-Z]{3}\b", statement) if c in (airport_confidences or {})]
-    grades = [airport_confidences[c] for c in named] if named else tool_confidences
-    known = [CONFIDENCE_LEVELS[c] for c in grades if c in CONFIDENCE_LEVELS]
-    # "High for congestion; Medium for the spill model": the lowest level stated is what must hold.
-    stated_levels = [CONFIDENCE_LEVELS[x.lower()] for x in re.findall(r"\b(high|medium|low)\b", statement, re.I)]
-    return bool(known) and min(stated_levels) > min(known)
+    grades = airport_confidences or {}
+    by_tool = tool_confidences if isinstance(tool_confidences, dict) else {}
+    values = tool_confidences.values() if isinstance(tool_confidences, dict) else tool_confidences
+    overall = [CONFIDENCE_LEVELS[c] for c in values if c in CONFIDENCE_LEVELS]
+    for match in ANSWER_CONFIDENCE.finditer(answer):
+        block_end = answer.find("\n\n", match.start())
+        block = answer[match.start() : block_end if block_end != -1 else len(answer)]
+        # The claim is the confidence statement itself (its first sentence) plus continuation lines that
+        # open with a level ("High for SFO congestion."). Explanatory sentences that merely mention a
+        # level ("the other four are high") describe grades; they are not claims.
+        lines = block.split("\n")
+        statement = re.split(r"(?<=[.!?])[*_]*\s", lines[0], maxsplit=1)[0]
+        continuations = [ln for ln in lines[1:] if LEVEL_FIRST.match(ln)]
+        for clause in re.split(r";|,|\n|\bbut\b|\band\b", "\n".join([statement, *continuations])):
+            levels = [CONFIDENCE_LEVELS[x.lower()] for x in re.findall(r"\b(high|medium|low)\b", clause, re.I)]
+            if not levels:
+                continue
+            named = [grades[c] for c in re.findall(r"\b[A-Z]{3}\b", clause) if c in grades]
+            topical = [
+                conf for tool, conf in by_tool.items() if CLAUSE_TOPICS.get(tool, re.compile("$^")).search(clause)
+            ]
+            known = [CONFIDENCE_LEVELS[g] for g in (named or topical) if g in CONFIDENCE_LEVELS] or overall
+            if known and min(levels) > min(known):
+                return True
+    return False
 
 
 def _collect(node: Any, out: list[Evidence], path: str = "") -> None:
@@ -190,7 +222,8 @@ def check_grounding(answer: str, tool_payloads: list[Any]) -> GroundingReport:
         if not unit and not dec and "," not in m.group("num"):
             if 1900 <= value <= 2100 and (YEAR_BEFORE.search(before) or YEAR_AFTER.match(answer, m.end())):
                 continue  # a calendar year in context ("in 2025", "2019 levels"), not a count
-            if value <= 10 and SMALL_INT_BEFORE.search(before):
+            is_list_marker = LINE_START.search(before) and LIST_MARKER_AFTER.match(answer, m.end())
+            if value <= 10 and (is_list_marker or TOP_N_BEFORE.search(before)):
                 continue  # list markers and "top 3" phrasing
         if not unit and COMPOUND_TAIL.match(answer, m.end()):
             continue  # time descriptors ("trailing-12-month"), not statistics

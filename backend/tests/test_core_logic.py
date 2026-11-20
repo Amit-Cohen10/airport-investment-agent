@@ -461,7 +461,22 @@ async def test_offline_follow_ups_keep_the_previous_analysis(service):
     _, calls = await tools_for("Weight growth twice as much", sid)
     assert calls == [("rank_expansion_candidates", {"region": "new england", "demand_momentum_weight": 0.6})]
     _, calls = await tools_for("What about Bangor?", sid)
-    assert calls == [("explain_airport_score", {"airport": "BGR"})]
+    assert calls == [("explain_airport_score", {"airport": "BGR", "demand_momentum_weight": 0.6})]  # scenario kept
     sid2, _ = await tools_for("What share of flights out of Anchorage are long haul?", None)
     _, calls = await tools_for("And at 4,000 miles?", sid2)
     assert calls == [("analyze_route_mix", {"airport": "ANC", "long_haul_threshold_mi": 4000.0})]
+
+
+async def test_offline_airport_follow_up_keeps_scenario_weights(service):
+    from app.agent.runtime import AgentRuntime
+    from app.agent.tools.definitions import build_tools
+    from app.agent.tools.registry import ToolRegistry
+
+    rt = AgentRuntime(
+        OfflinePlanner(service.directory.find_in_text), ToolRegistry(service, build_tools()), InMemorySessionStore()
+    )
+    sid = (await rt.run(None, "Which airports in New England are strong candidates?")).session_id
+    await rt.run(sid, "Weight growth twice as much")
+    reply = await rt.run(sid, "What about Bangor?")
+    call = [s for s in reply.trace["steps"] if s["type"] == "tool"][0]
+    assert call["tool"] == "explain_airport_score" and call["arguments"]["demand_momentum_weight"] == 0.6

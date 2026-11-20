@@ -22,7 +22,7 @@ class Session:
     focus_airports: list[str] = field(default_factory=list)  # airports discussed most recently
     last_tools: list[str] = field(default_factory=list)
     resumed: bool = False  # False when a client sent an id we no longer have (expired / restarted)
-    last_evidence: list[Any] = field(default_factory=list)  # ToolResults of the latest turn that ran analyses
+    evidence_history: list[Any] = field(default_factory=list)  # recent successful ToolResults, oldest first
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 

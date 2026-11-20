@@ -95,3 +95,4 @@ export function AirportMap({ highlight = [], className = '' }: { highlight?: str
 }
 
 export const AIRPORT_COUNT = (points as Point[]).length
+export const DRAWN_COUNT = (points as Point[]).filter(isContiguous).length

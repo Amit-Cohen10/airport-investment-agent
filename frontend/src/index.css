@@ -47,6 +47,8 @@ body {
 ::selection { background: var(--color-sign); color: var(--color-ink); }
 textarea, input { caret-color: var(--color-brand-600); }
 :focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; }
+/* On the near-black surfaces (header, hero) a dark ring would be invisible: use the sign yellow. */
+header :focus-visible, .bg-ink :focus-visible { outline-color: var(--color-sign); }
 /* The composer frame shows focus for its textarea (focus-within ring); avoid a second outline inside it. */
 textarea:focus-visible { outline: none; }
 .scroll-none { scrollbar-width: none; }

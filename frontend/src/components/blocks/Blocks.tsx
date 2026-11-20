@@ -28,7 +28,7 @@ function Kpis({ block }: { block: KpiBlock }) {
           <div key={kpi.label} className="bg-white px-3 py-2.5">
             <dt className="text-[12px] leading-tight text-slate-500">{kpi.label}</dt>
             <dd className="num mt-1 text-[17px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
-              <CellText value={kpi.value} />
+              {kpi.value}
             </dd>
             {kpi.hint && <dd className="num mt-0.5 text-[11.5px] leading-snug text-slate-500">{kpi.hint}</dd>}
           </div>

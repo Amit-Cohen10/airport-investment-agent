@@ -374,4 +374,80 @@ def test_confidence_statement_with_several_levels_uses_the_lowest():
     from app.agent.guardrails import confidence_overstated
 
     answer = "**Confidence:** High for congestion comparisons; Medium for unmet demand models."
-    assert not confidence_overstated(answer, ["high", "medium"])
+    assert not confidence_overstated(answer, {"compare_congestion": "high", "estimate_unmet_demand": "medium"})
+
+
+class TestCodexRound2:
+    def test_unknown_tool_arguments_are_rejected(self, registry):
+        result = registry.execute("get_airport_profile", json.dumps({"airport": "SFO", "invented_weight": 0.99}))
+        assert not result.ok and "Invalid arguments" in result.data["error"]
+
+    async def test_invented_parameter_cannot_ground_a_number(self, service, fake_llm_factory):
+        llm = fake_llm_factory(
+            [
+                ("tools", [("get_airport_profile", {"airport": "SFO", "invented_weight": 0.99})]),
+                ("text", "SFO load factor is 99%."),
+            ]
+        )
+        runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), InMemorySessionStore())
+        reply = await runtime.run(None, "q", _noop)
+        assert reply.grounding["unverified"] == ["99%"]
+
+    def test_sentence_initial_counts_and_of_years_are_checked(self):
+        assert check_grounding("9 runways are available at SFO.", []).unverified == ["9"]
+        assert check_grounding("The airport has a total of 2000 gates.", []).unverified == ["2000"]
+        assert check_grounding("1. First point\n2) Second point", []).checked == 0
+
+    def test_every_confidence_clause_is_checked(self):
+        from app.agent.guardrails import confidence_overstated
+
+        grades = {"SFO": "medium", "ANC": "low"}
+        assert confidence_overstated("Confidence: High for SFO; Low for ANC.", ["medium", "low"], grades)
+        assert confidence_overstated("Confidence: Medium overall.\nHigh for SFO congestion.", ["medium"], grades)
+        tools = {"compare_congestion": "high", "estimate_unmet_demand": "medium"}
+        assert not confidence_overstated("Confidence: High for congestion; Medium for unmet demand.", tools, {})
+
+    async def test_history_follow_up_shows_the_evidence_it_uses(self, service, fake_llm_factory):
+        lf = service.airport_profile("SFO").data["traffic_ttm"]["load_factor"]
+        llm = fake_llm_factory(
+            [
+                ("tools", [("get_airport_profile", {"airport": "SFO"})]),
+                ("text", "Profile."),
+                ("tools", [("analyze_route_mix", {"airport": "ANC"})]),
+                ("text", "Route mix."),
+                ("text", f"**Confidence:** High. SFO's load factor is {lf * 100:.1f}%."),
+            ]
+        )
+        runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), InMemorySessionStore())
+        sid = (await runtime.run(None, "SFO?", _noop)).session_id
+        await runtime.run(sid, "ANC long haul?", _noop)
+        reply = (await runtime.run(sid, "remind me SFO's load factor", _noop)).to_dict()
+        assert reply["evidence_from_earlier_turn"]
+        assert [e["tool"] for e in reply["evidence"]] == ["get_airport_profile"]
+
+
+def test_confidence_explanations_are_not_claims():
+    from app.agent.guardrails import confidence_overstated
+
+    tools = {"rank_expansion_candidates": "medium"}
+    answer = (
+        "**Confidence: Medium.** MRY's confidence is medium. The other four are high, and the ranking takes the lowest."
+    )
+    assert not confidence_overstated(answer, tools, {"MRY": "medium"})
+    answer2 = "**Confidence:** Medium. The spill model is always Medium, and the ranking results were High."
+    assert not confidence_overstated(answer2, {"estimate_unmet_demand": "medium"}, {})
+
+
+def test_rank_interval_width_is_evidence(service):
+    data = service.rank_expansion(["BOS", "PWM", "BGR"], "x").for_llm()
+    assert check_grounding("BOS's 90% rank range is 1-3.", [data]).unverified == []
+
+
+def test_bold_confidence_statement_ends_at_its_sentence():
+    from app.agent.guardrails import confidence_overstated
+
+    answer = "**Confidence: Medium.** MRY's confidence is medium, and the other four airports are high."
+    assert not confidence_overstated(answer, {"rank_expansion_candidates": "medium"}, {"MRY": "medium"})
+    assert confidence_overstated(
+        "**Confidence: High.** Based on the ranking.", {"rank_expansion_candidates": "medium"}, {}
+    )

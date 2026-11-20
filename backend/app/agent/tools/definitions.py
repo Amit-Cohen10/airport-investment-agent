@@ -8,13 +8,21 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.agent.tools.formatting import compact, fmt_metric, pct, r1
 from app.agent.tools.methodology import methodology_text
 from app.agent.tools.registry import Tool
 from app.domain.models import BarChartBlock, BarSeries, Kpi, KpiBlock, TableBlock, ToolResult
 from app.services.insights import AnalysisError, InsightService
+
+
+class ToolArgs(BaseModel):
+    """Closed argument contract: unknown fields are rejected, never silently ignored (a dropped field
+    the model believes it set would make its answer disagree with what actually ran)."""
+
+    model_config = ConfigDict(extra="forbid")
+
 
 CAUSE_LABELS = {
     "nas": "NAS (system/capacity)",
@@ -33,7 +41,7 @@ def _code(v: str) -> str:
     return v
 
 
-class WeightOverrides(BaseModel):
+class WeightOverrides(ToolArgs):
     demand_momentum_weight: float | None = Field(
         None, ge=0, le=10, description="Relative weight for demand growth pillar (default 0.30)"
     )
@@ -57,7 +65,7 @@ class WeightOverrides(BaseModel):
 
 
 # --- 1. resolve -------------------------------------------------------------------------------
-class ResolveArgs(BaseModel):
+class ResolveArgs(ToolArgs):
     queries: list[str] = Field(
         min_length=1,
         max_length=10,
@@ -220,7 +228,7 @@ def explain_handler(args: ExplainArgs, svc: InsightService) -> ToolResult:
 
 
 # --- 4. profile -------------------------------------------------------------------------------
-class AirportArgs(BaseModel):
+class AirportArgs(ToolArgs):
     airport: AirportCode
 
     @field_validator("airport")
@@ -251,7 +259,7 @@ def profile_handler(args: AirportArgs, svc: InsightService) -> ToolResult:
 
 
 # --- 5. congestion ----------------------------------------------------------------------------
-class CongestionArgs(BaseModel):
+class CongestionArgs(ToolArgs):
     airports: list[str] = Field(min_length=1, max_length=6, description="Airport codes to compare")
 
     @field_validator("airports")
@@ -459,7 +467,7 @@ def live_handler(args: AirportArgs, svc: InsightService) -> ToolResult:
 
 
 # --- 9. methodology ---------------------------------------------------------------------------
-class MethodologyArgs(BaseModel):
+class MethodologyArgs(ToolArgs):
     topic: Literal["expansion_score", "congestion_index", "route_mix", "unmet_demand", "data_sources", "limitations"]
 
 

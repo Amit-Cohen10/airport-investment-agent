@@ -8,6 +8,9 @@ export function AirportCode({ code }: { code: string }) {
 }
 
 const CODE_ONLY = /^[A-Z]{3}$/
+// Three-letter uppercase values that are not airports (weather flight categories, sources, abbreviations).
+const NOT_AIRPORTS = new Set(['VFR', 'IFR', 'MVFR', 'LIFR', 'NAS', 'FAA', 'BTS', 'TTM', 'USA', 'AND', 'THE'])
+const isAirportCode = (text: string) => CODE_ONLY.test(text) && !NOT_AIRPORTS.has(text)
 const CODE_AND_NAME = /^([A-Z]{3}) - (.+)$/
 
 /**
@@ -17,9 +20,9 @@ const CODE_AND_NAME = /^([A-Z]{3}) - (.+)$/
 export function CellText({ value }: { value: string | number | null }) {
   if (value === null || value === undefined) return <>-</>
   const text = String(value)
-  if (CODE_ONLY.test(text)) return <AirportCode code={text} />
+  if (isAirportCode(text)) return <AirportCode code={text} />
   const named = CODE_AND_NAME.exec(text)
-  if (named) {
+  if (named && isAirportCode(named[1])) {
     return (
       <span className="inline-flex items-baseline gap-2">
         <AirportCode code={named[1]} />
@@ -30,6 +33,8 @@ export function CellText({ value }: { value: string | number | null }) {
   return <>{text}</>
 }
 
-/** Numeric-looking cells (12.4%, 21.0M, 18.3 min, 19/233, +0.5 pp) are right-aligned in tables. */
+/** Numeric-looking cells (12.4%, 21.0M, 18.3 min, 19/233, +0.5 pp, "18.3 min (p68)") are right-aligned. */
 export const isNumericCell = (value: string | number | null) =>
-  typeof value === 'number' || (typeof value === 'string' && /^[~+\-−]?[\d.,]+(\/\d+)?\s?(%|pp|M|K|B|min|s|ms)?$/.test(value.trim()))
+  typeof value === 'number' ||
+  (typeof value === 'string' &&
+    /^[~+\-−]?[\d.,]+(\/\d+)?\s?(%|pp|M|K|B|min|s|ms)?(\s\(p\d+\))?$/.test(value.trim()))

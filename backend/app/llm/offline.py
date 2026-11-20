@@ -109,7 +109,9 @@ class OfflinePlanner:
             if name == "compare_congestion":
                 return [(name, {"airports": codes[:6]})]
             if name in ("rank_expansion_candidates", "explain_airport_score"):
-                return [("explain_airport_score", {"airport": codes[0]})]
+                # Keep the scenario: a what-if weighting set earlier still applies to the explanation.
+                weights = {k: v for k, v in args.items() if k.endswith("_weight")}
+                return [("explain_airport_score", {"airport": codes[0], **weights})]
             if "airport" in args:
                 return [(name, {**args, "airport": codes[0]})]
         # 3. Fresh questions, by keyword intent.

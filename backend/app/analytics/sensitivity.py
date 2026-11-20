@@ -49,5 +49,6 @@ def rank_stability(
             "p_top_3": round(float((r <= min(3, n)).mean()), 3),
             "median_rank": int(np.median(r)),
             "rank_range_90": [int(np.percentile(r, 5)), int(np.percentile(r, 95))],
+            "rank_range_interval_pct": 90,  # the range covers the middle 90% of scenarios (5th-95th pct)
         }
     return out

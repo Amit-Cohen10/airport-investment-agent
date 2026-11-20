@@ -2,7 +2,7 @@ import { ArrowRight, ArrowUp, Database, Mic, MicOff, Plane, RotateCcw, Square, V
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchHealth } from './api/client'
 import type { Health } from './api/types'
-import { AIRPORT_COUNT, AirportMap } from './components/AirportMap'
+import { AIRPORT_COUNT, AirportMap, DRAWN_COUNT } from './components/AirportMap'
 import { EvidencePanel } from './components/EvidencePanel'
 import { EXAMPLE_QUESTIONS, FOLLOW_UPS } from './components/labels'
 import { MessageView } from './components/MessageView'
@@ -151,7 +151,7 @@ export default function App() {
                 }}
                 rows={1}
                 placeholder={speech.listening ? 'Listening...' : 'Ask about US airports, e.g. "Compare LAX and SNA congestion"'}
-                className="scroll-none max-h-32 min-h-[24px] flex-1 resize-none self-center bg-transparent py-1 text-[15px] outline-none placeholder:text-slate-400"
+                className="scroll-none max-h-32 min-h-[24px] flex-1 resize-none self-center bg-transparent py-1 text-[15px] outline-none placeholder:text-slate-500"
                 aria-label="Message"
               />
               {speech.canSpeak && (
@@ -191,7 +191,7 @@ export default function App() {
                 </button>
               )}
             </div>
-            <p className="mt-1.5 text-[11px] text-slate-400">
+            <p className="mt-1.5 text-[11px] text-slate-500">
               Scores are screening priorities computed by code from public data; the AI explains them. Not investment advice.
             </p>
           </form>
@@ -209,8 +209,8 @@ function EmptyState({ onPick }: { onPick: (q: string) => void }) {
   return (
     <div className="mx-auto max-w-2xl pt-2 sm:pt-6">
       <section className="rise overflow-hidden rounded-2xl bg-ink px-6 pb-5 pt-7 text-white sm:px-8 sm:pt-9">
-        <h2 className="max-w-[18ch] font-display text-[34px] font-light leading-[1.05] tracking-[-0.04em] sm:text-[42px]">
-          Where will terminal investment pay off?
+        <h2 className="max-w-[22ch] font-display text-[34px] font-light leading-[1.05] tracking-[-0.04em] sm:text-[42px]">
+          Where is terminal investment worth investigating?
         </h2>
         <div className="mt-5 grid items-end gap-4 2xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           <div>
@@ -220,7 +220,8 @@ function EmptyState({ onPick }: { onPick: (q: string) => void }) {
               assumptions and confidence.
             </p>
             <p className="num mt-5 text-[12px] leading-snug text-slate-400">
-              {AIRPORT_COUNT} US airports in the scoring universe, sized by passengers · public FAA &amp; BTS data
+              {AIRPORT_COUNT} US airports in the scoring universe; the {DRAWN_COUNT} in the contiguous US are drawn,
+              sized by passengers · public FAA &amp; BTS data
             </p>
           </div>
           <AirportMap

@@ -60,7 +60,7 @@ flowchart LR
   Live --> SVC
   SVC --> TOOLS[Tool registry<br/>Pydantic-validated]
   TOOLS <--> RT[Agent runtime loop]
-  RT <--> LLM[LLM chain<br/>Gemini -> Claude -> offline<br/>Groq optional]
+  RT <--> LLM[LLM chain<br/>Gemini -> (Groq if keyed) -> Claude -> offline]
   RT --> API[FastAPI SSE] --> UI[React chat + evidence panel]
 ```
 
@@ -222,7 +222,7 @@ The "why" combines:
   - "2.7M" must match a count.
   - An explicit sign must match.
 - Small integers and years are exempt only in context: list markers or "top 3" for small integers; "in 2025" or "2019 levels" for years. So "SFO has 9 runways" or "2000 gates" is still checked.
-- A separate check flags answers that state a **higher confidence than the analyses returned**.
+- A separate check flags answers that state a **higher confidence than the analyses returned**. Each confidence statement is checked clause by clause: against a named airport's own grade, else the analysis the clause names ("High for congestion"), else the lowest grade among the analyses used.
 - The UI wording reflects what the check is: "N figures match the data", or "No figures to check". It does not say "verified".
 - It is a set-membership check, so it catches invented or misread figures. In the eval it caught "NAS delay 11.9 min" when the data said 11.19.
 - What it cannot catch: a wrong number that happens to equal some other value in the evidence. Measured against a full New England ranking payload, a random percentage still passes about 20% of the time, down from about 75% before the unit rules.
@@ -241,7 +241,7 @@ Sessions keep the history, so follow-ups like "what about Bangor?" or "weight gr
 - Only one turn runs per session at a time.
 
 **LLM provider chain:**
-- Gemini free tier (`gemini-3.5-flash-lite`), then Claude, with Groq (`gpt-oss-120b`) optional if a key is set.
+- Gemini free tier (`gemini-3.5-flash-lite`) first. Groq (`gpt-oss-120b`) comes next only if a Groq key is set. Then Claude, then the offline planner (`LLM_PROVIDERS` sets the order).
 - The Claude model is configurable. The default is `claude-opus-5-5`; the evaluation below ran with `claude-sonnet-5-5`, set in `.env`.
 - One OpenAI-compatible adapter plus an Anthropic adapter, with retry/backoff on 429/5xx and automatic failover.
 - **Offline planner (last in the chain):** if every LLM is unavailable, a keyword intent router runs the same tools and assembles the answer from tool summaries.
@@ -280,7 +280,7 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
 
 ## 8. Quality
 
-**Automated tests: 127 backend + 9 frontend** (`make test`, `npm test`). No network or API key is needed.
+**Automated tests: 145 backend + 10 frontend** (`make test`, `npm test`). No network or API key is needed.
 - Analytics math checked against closed-form values: spill-model inversion, growth, load factor, fare premium.
 - Scoring on synthetic universes: neutral missing-data policy, confidence grades, weight overrides, bottleneck check.
 - Connectors on synthetic files with mocked HTTP: retries, pagination, form-state changes, atomic downloads and snapshot writes.
@@ -313,17 +313,19 @@ Hard cases cover multi-tool questions, ambiguity ("Portland"), data the system d
 
 | | Gemini `gemini-3.5-flash-lite` (free tier) | Claude `claude-sonnet-5-5` (paid) |
 |---|---|---|
-| Turns passed | 16/17 | **17/17** |
-| Figures matching the data | 261/262 | 469/470 (the 1 is the user's injected "99", quoted in the refusal) |
-| Avg latency | **3.4 s** | 8.0 s |
+| Turns passed | **17/17** | **17/17** |
+| Figures matching the data | 245/245 | 464/464 |
+| Avg latency | **4.0 s** | 7.9 s |
 | Cost | free (rate-limited) | ~$0.05 per question |
-| Style | concise | more detailed (about 75% more figures per answer) |
+| Style | concise | more detailed (almost twice as many figures per answer) |
 
 Notes on the run:
-- Gemini's saved full run shows 15/17. One of those flags was a checker gap: "High for congestion; Medium for the spill model" was read as High. It was fixed and that turn re-ran PASS.
-- The remaining Gemini flag is genuine but minor: 5.17% written as "5.1%" (truncated, not rounded).
+- These are the final runs after the second Codex review; the saved reports are exactly these runs. Results vary from run to run: earlier runs in the same round scored 15-16/17 (Gemini) and 14-16/17 (Claude).
+- Those failures were of two kinds:
+  - **Checker gaps**, each fixed with a regression test: a number that existed only in a field name (`rank_range_90`, now an explicit `rank_range_interval_pct`), explanatory sentences read as confidence claims, a bolded confidence line, and a refusal list that missed "will not".
+  - **Real model slips the guardrail is meant to catch:** derived numbers ("less than 1.2 million passengers of headroom", "over 120,000 spilled passengers each"), a truncation ("~9" for 9.7), and a confidence level the model gave to curated notes. Two prompt rules were added: grade only what the tools graded, and refuse dictated figures explicitly.
 - Explicit units on every metric (`unit` field) removed Claude's earlier recurring slip, a 0.005 pp gap reported as "0.5 pp".
-- **Decision:** Gemini is primary (2-3x faster, which matters for a live demo and voice, and free for reviewers), with Claude as the automatic backup. Swapping the order is one env var (`LLM_PROVIDERS`) if answer depth matters more than speed.
+- **Decision:** Gemini is primary (about 2x faster, which matters for a live demo and voice, and free for reviewers), with Claude as the automatic backup. Swapping the order is one env var (`LLM_PROVIDERS`) if answer depth matters more than speed.
 
 Iterating on the eval surfaced real issues:
 - Follow-ups re-derived numbers instead of re-running tools (now a prompt rule).
@@ -333,7 +335,7 @@ Iterating on the eval surfaced real issues:
 
 **Provider failover verified live:** with Gemini forced to fail, Claude (`claude-sonnet-5-5`) answered the same questions with every number grounded.
 
-**Three review rounds** (two independent code reviews, then an external review with Codex), each finding fixed with a regression test. The most important:
+**Four review rounds** (two independent code reviews, then two external reviews with Codex: a full review and a verification re-review), each finding fixed with a regression test. The most important:
 - **Security:** API keys were being copied into the Docker image; `.env` is now excluded.
 - **Data joins:** FAA and IATA codes differed, renamed airports split their history, and territories were missing.
 - **Scoring:** re-weighting rewarded data gaps; replaced by neutral imputation.
@@ -344,6 +346,13 @@ Iterating on the eval surfaced real issues:
   - An FAA outage reads "unavailable", not "no programs".
   - Incomplete months suppress growth instead of distorting it.
 - **Framing:** the score is a screening priority with a bottleneck check, not a return estimate.
+- **Verification round (Codex #2):**
+  - Tool arguments are strict (unknown fields are rejected, so an invented parameter cannot become evidence).
+  - Null required values in T-100 files fail ingest instead of being read as zero.
+  - Small counts at the start of a sentence are checked, not exempted.
+  - Every confidence statement is checked, clause by clause, not only the first; explanatory sentences that merely mention a level are not treated as claims.
+  - A follow-up answered from history shows the analysis it actually used.
+  - The offline planner keeps what-if weights on airport follow-ups.
 
 **Ingest validation contracts:**
 - Checks: required columns, no nulls in required fields, unique keys, no missing or truncated months, anchor airports present in the latest month, row counts, non-negative values.

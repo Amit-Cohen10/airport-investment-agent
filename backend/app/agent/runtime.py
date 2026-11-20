@@ -31,7 +31,15 @@ from app.llm.base import AssistantTurn, LLMClient, LLMError
 log = logging.getLogger(__name__)
 
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
-WHAT_IF_SUFFIXES = ("_weight", "_threshold_mi")
+# The only tool arguments that count as evidence: what-if parameters that change a computed result.
+# Tool argument models forbid unknown fields, so these are always parameters that were applied.
+WHAT_IF_PARAMS = {
+    "demand_momentum_weight",
+    "capacity_utilization_weight",
+    "operational_strain_weight",
+    "revenue_potential_weight",
+    "long_haul_threshold_mi",
+}
 
 
 async def _noop(_: dict[str, Any]) -> None:
@@ -191,18 +199,22 @@ class AgentRuntime:
         seen = [_safe_json(m["content"]) for m in messages if m.get("role") == "tool"]
         results = [p for p in seen if isinstance(p, dict) and p.get("ok", True) is not False]
         params = [
-            {k: v for k, v in s["arguments"].items() if k.endswith(WHAT_IF_SUFFIXES)}
+            {k: v for k, v in s["arguments"].items() if k in WHAT_IF_PARAMS}
             for s in trace.steps
             if s["type"] == "tool" and s.get("ok") and isinstance(s["arguments"], dict)
         ]
         grounding = check_grounding(answer, results + params)
-        grounding.confidence_overstated = confidence_overstated(
-            answer, [r.confidence.value for r in evidence if r.confidence], _airport_confidences(evidence)
-        )
         # A follow-up answered from earlier results (no new analysis this turn) still shows the evidence
-        # it relies on: the latest analyses from earlier in the conversation, labeled as such.
-        from_earlier = not evidence and grounding.checked > 0 and bool(session.last_evidence)
-        shown = list(session.last_evidence) if from_earlier else evidence
+        # it relies on: the earlier analyses whose figures the answer actually uses, labeled as such.
+        shown = evidence
+        from_earlier = False
+        if not evidence and grounding.checked > 0:
+            shown = _supporting_results(answer, session.evidence_history)
+            from_earlier = bool(shown)
+        # Confidence claims are checked against the evidence the answer rests on (this turn's or carried).
+        grounding.confidence_overstated = confidence_overstated(
+            answer, _tool_confidences(shown), _airport_confidences(shown)
+        )
         self._update_session(session, new_messages, evidence)
         return AgentReply(session.id, answer, shown, grounding.to_dict(), trace.to_dict(), from_earlier)
 
@@ -246,8 +258,34 @@ class AgentRuntime:
             session.focus_airports = list(dict.fromkeys(session.focus_airports + focus))[-12:]
         session.last_tools = [r.tool for r in evidence]
         if evidence:
-            session.last_evidence = [r for r in evidence if r.ok]
+            # Most recent last; bounded so selection stays cheap and memory stays flat.
+            session.evidence_history = (session.evidence_history + [r for r in evidence if r.ok])[-EVIDENCE_HISTORY:]
         self.sessions.save(session)
+
+
+EVIDENCE_HISTORY = 12
+
+
+def _supporting_results(answer: str, history: list[ToolResult], limit: int = 3) -> list[ToolResult]:
+    """Earlier results that contain the answer's figures, best-supported first (never just 'the last one')."""
+    scored = []
+    for order, result in enumerate(history):
+        report = check_grounding(answer, [result.for_llm()])
+        matched = report.checked - len(report.unverified)
+        if matched > 0:
+            scored.append((matched, order, result))
+    scored.sort(key=lambda t: (-t[0], -t[1]))  # most matches, then most recent
+    return [r for _, _, r in scored[:limit]]
+
+
+def _tool_confidences(evidence: list[ToolResult]) -> dict[str, str]:
+    """Lowest confidence per tool among the results the answer rests on."""
+    order = {"low": 0, "medium": 1, "high": 2}
+    out: dict[str, str] = {}
+    for r in evidence:
+        if r.confidence and (r.tool not in out or order[r.confidence.value] < order[out[r.tool]]):
+            out[r.tool] = r.confidence.value
+    return out
 
 
 def _airport_confidences(evidence: list[ToolResult]) -> dict[str, str]:

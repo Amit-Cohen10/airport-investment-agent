@@ -59,7 +59,7 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
               )}
               <span className="shrink-0 font-medium text-slate-700">{toolLabel(s.tool)}</span>
               {s.done && s.summary && <span className="truncate text-slate-500">· {s.summary}</span>}
-              {s.done && s.ms !== undefined && <span className="num ml-auto shrink-0 font-mono text-[11px] text-slate-400">{s.ms} ms</span>}
+              {s.done && s.ms !== undefined && <span className="num ml-auto shrink-0 font-mono text-[11px] text-slate-500">{s.ms} ms</span>}
             </li>
           ))}
         </ul>
@@ -84,7 +84,7 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
           </div>
           <div className="num mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2.5 text-xs">
             <GroundingBadge grounding={answer.grounding} />
-            <span className="text-slate-400">
+            <span className="text-slate-500">
               {answer.evidence.length} analyses · {answer.sources.length} sources · {formatMs(answer.trace.total_ms)}
             </span>
             {onSpeak && (

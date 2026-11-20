@@ -87,8 +87,10 @@ export function useSpeech(onFinalTranscript: (text: string) => void) {
   return { canListen, canSpeak, listening, interim, error, start, stop, speak, cancelSpeech }
 }
 
-/** Speak only the direct answer (first paragraph) without markdown symbols. */
+/** Speak only the direct answer (first real paragraph, skipping italic notes such as the offline-mode
+ *  disclaimer) without markdown symbols. */
 function toSpeech(markdown: string): string {
-  const firstBlock = markdown.split(/\n\s*\n/)[0] ?? markdown
+  const blocks = markdown.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean)
+  const firstBlock = blocks.find((b) => !/^_.*_$/s.test(b)) ?? blocks[0] ?? markdown
   return firstBlock.replace(/[*_#`>|]/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1').trim()
 }

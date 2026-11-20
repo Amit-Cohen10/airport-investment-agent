@@ -143,7 +143,7 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
                     <span className="font-medium text-slate-800">
                       {i + 1}. {s.type === 'llm' ? `LLM (${s.provider})` : toolLabel(s.tool ?? '')}
                     </span>
-                    <span className="num font-mono text-[11px] text-slate-400">{s.ms} ms</span>
+                    <span className="num font-mono text-[11px] text-slate-500">{s.ms} ms</span>
                   </div>
                   {s.type === 'llm' && (
                     <div className="text-xs text-slate-500">
