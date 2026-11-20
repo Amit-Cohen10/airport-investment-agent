@@ -61,4 +61,10 @@ describe('presentation helpers', async () => {
     }
     for (const v of ['high', 'LAX', 'airside risk', 'Taxi-out']) expect(isNumericCell(v)).toBe(false)
   })
+
+  it('renders real airports as codes and keeps weather/source tokens as text', async () => {
+    const { isAirportCode } = await import('../components/AirportCode')
+    for (const v of ['LAX', 'USA', 'AND', 'HKG']) expect(isAirportCode(v)).toBe(true)
+    for (const v of ['VFR', 'IFR', 'NAS', 'FAA', 'BTS', 'TTM', 'Lax', 'LAXX']) expect(isAirportCode(v)).toBe(false)
+  })
 })

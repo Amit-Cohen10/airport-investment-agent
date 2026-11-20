@@ -23,6 +23,7 @@ class Session:
     last_tools: list[str] = field(default_factory=list)
     resumed: bool = False  # False when a client sent an id we no longer have (expired / restarted)
     evidence_history: list[Any] = field(default_factory=list)  # recent successful ToolResults, oldest first
+    scenario_weights: dict[str, float] = field(default_factory=dict)  # active what-if pillar weights, {} = defaults
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 

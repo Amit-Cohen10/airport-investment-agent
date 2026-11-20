@@ -99,43 +99,94 @@ CLAUSE_TOPICS = {
 }
 
 
+@dataclass(frozen=True)
+class Grade:
+    """One confidence grade an analysis returned, for one airport (or for the analysis as a whole)."""
+
+    tool: str | None
+    airport: str | None
+    level: str
+
+
+# "I have high confidence in ...", "MRY's confidence is medium", "high-confidence": an explicit claim
+# wherever it appears. A bare level in a sentence ("the other four are high") is not one.
+EXPLICIT_CONFIDENCE = re.compile(
+    r"\b(?:high|medium|low)\b\W+(?:\w+\W+){0,2}?confiden|\bconfiden\w*\W+(?:\w+\W+){0,3}?(?:high|medium|low)\b",
+    re.I,
+)
+_LEVEL = re.compile(r"\b(high|medium|low)\b", re.I)
+_CLAUSE_SPLIT = re.compile(r"(;|,|\n|\bbut\b|\band\b)")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])[*_]*\s+|\n+")
+
+
 def confidence_overstated(
     answer: str,
     tool_confidences: list[str] | dict[str, str],
     airport_confidences: dict[str, str] | None = None,
+    graded: list[Grade] | None = None,
 ) -> bool:
     """True when any confidence claim in the answer exceeds what the analyses returned.
 
-    Every confidence statement is checked (an answer may state several, on several lines), clause by
-    clause: "High for SFO; Low for ANC" checks High against SFO's own grade and Low against ANC's;
-    "High for congestion" checks against the congestion analysis. A clause tied to neither is compared
-    with the lowest grade among the analyses used.
+    Claims are (a) each confidence statement ("Confidence: High for SFO; Low for ANC"): its first
+    sentence plus continuation lines that open with a level, and (b) any clause that asserts confidence
+    explicitly ("I have high confidence in the SFO spill estimate"). Each clause is checked against the
+    grades it refers to: an airport's grade for that analysis ("High for SFO congestion"), else that
+    airport's grades, else the named analysis ("High for congestion"), else the lowest grade overall.
+    A level carries across "and" and commas ("High for congestion and unmet demand" checks both).
     """
-    grades = airport_confidences or {}
-    by_tool = tool_confidences if isinstance(tool_confidences, dict) else {}
-    values = tool_confidences.values() if isinstance(tool_confidences, dict) else tool_confidences
-    overall = [CONFIDENCE_LEVELS[c] for c in values if c in CONFIDENCE_LEVELS]
+    grades = list(graded or [])
+    if isinstance(tool_confidences, dict):
+        grades += [Grade(tool, None, level) for tool, level in tool_confidences.items()]
+    else:
+        grades += [Grade(None, None, level) for level in tool_confidences]
+    grades += [Grade(None, airport, level) for airport, level in (airport_confidences or {}).items()]
+    grades = [g for g in grades if g.level in CONFIDENCE_LEVELS]
+    if not grades:
+        return False
+
+    claims: list[str] = []
     for match in ANSWER_CONFIDENCE.finditer(answer):
         block_end = answer.find("\n\n", match.start())
         block = answer[match.start() : block_end if block_end != -1 else len(answer)]
-        # The claim is the confidence statement itself (its first sentence) plus continuation lines that
-        # open with a level ("High for SFO congestion."). Explanatory sentences that merely mention a
-        # level ("the other four are high") describe grades; they are not claims.
         lines = block.split("\n")
         statement = re.split(r"(?<=[.!?])[*_]*\s", lines[0], maxsplit=1)[0]
-        continuations = [ln for ln in lines[1:] if LEVEL_FIRST.match(ln)]
-        for clause in re.split(r";|,|\n|\bbut\b|\band\b", "\n".join([statement, *continuations])):
-            levels = [CONFIDENCE_LEVELS[x.lower()] for x in re.findall(r"\b(high|medium|low)\b", clause, re.I)]
-            if not levels:
-                continue
-            named = [grades[c] for c in re.findall(r"\b[A-Z]{3}\b", clause) if c in grades]
-            topical = [
-                conf for tool, conf in by_tool.items() if CLAUSE_TOPICS.get(tool, re.compile("$^")).search(clause)
-            ]
-            known = [CONFIDENCE_LEVELS[g] for g in (named or topical) if g in CONFIDENCE_LEVELS] or overall
-            if known and min(levels) > min(known):
+        claims.append("\n".join([statement, *(ln for ln in lines[1:] if LEVEL_FIRST.match(ln))]))
+    for sentence in _SENTENCE_SPLIT.split(answer):
+        claims += [c for c in re.split(r";|,|\bbut\b|\band\b", sentence) if EXPLICIT_CONFIDENCE.search(c)]
+
+    for claim in claims:
+        parts = _CLAUSE_SPLIT.split(claim)
+        carried: list[int] = []
+        for i in range(0, len(parts), 2):
+            clause = parts[i]
+            joined_by = parts[i - 1] if i else ""
+            levels = [CONFIDENCE_LEVELS[x.lower()] for x in _LEVEL.findall(clause)]
+            if not levels and joined_by in (",", "and") and _references(clause):
+                levels = carried  # "High for congestion and unmet demand": the level governs both
+            elif levels:
+                carried = levels
+            if levels and min(levels) > _lowest_referenced(clause, grades):
                 return True
     return False
+
+
+def _references(clause: str) -> bool:
+    """Does the clause name an airport or an analysis (so an inherited level applies to something new)?"""
+    return bool(re.search(r"\b[A-Z]{3}\b", clause)) or any(p.search(clause) for p in CLAUSE_TOPICS.values())
+
+
+def _lowest_referenced(clause: str, grades: list[Grade]) -> int:
+    airports = set(re.findall(r"\b[A-Z]{3}\b", clause))
+    tools = {t for t, pattern in CLAUSE_TOPICS.items() if pattern.search(clause)}
+    for picks in (
+        [g for g in grades if g.airport in airports and g.tool in tools],
+        [g for g in grades if g.airport in airports],
+        [g for g in grades if g.tool in tools],
+        grades,
+    ):
+        if picks:
+            return min(CONFIDENCE_LEVELS[g.level] for g in picks)
+    return max(CONFIDENCE_LEVELS.values())
 
 
 def _collect(node: Any, out: list[Evidence], path: str = "") -> None:

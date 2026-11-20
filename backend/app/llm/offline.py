@@ -51,6 +51,18 @@ def _last_analysis(history: list[dict[str, Any]]) -> tuple[str, dict[str, Any]] 
     return None
 
 
+SCENARIO = re.compile(r"Active what-if scenario[^:]*: (.+?)\. Pass these")
+
+
+def _scenario(system_prompt: str) -> dict[str, float]:
+    """The active what-if weights the runtime put in the session state, e.g. {"demand_momentum_weight": 0.6}."""
+    m = SCENARIO.search(system_prompt)
+    if not m:
+        return {}
+    pairs = (item.split("=") for item in m.group(1).split(", ") if "=" in item)
+    return {k.strip(): float(v) for k, v in pairs if k.strip().endswith("_weight")}
+
+
 # Resolver returns (airport codes, region name or None) found in free text.
 Resolver = Callable[[str], tuple[list[str], str | None]]
 
@@ -120,6 +132,7 @@ class OfflinePlanner:
             return [(intent, {"topic": topic})]
         if intent == "rank_expansion_candidates" or what_if_weights or (region and intent is None):
             rank_args: dict[str, Any] = {"region": region} if region else {"airports": codes} if codes else {}
+            rank_args |= _scenario(system_prompt)  # an active what-if scenario carries over
             if what_if_weights:
                 rank_args["demand_momentum_weight"] = 0.6
             return [("rank_expansion_candidates", rank_args)]
@@ -129,7 +142,9 @@ class OfflinePlanner:
             return [(intent, {"airports": codes[:6]})]
         if intent == "analyze_route_mix":
             return [(intent, {"airport": codes[0], **({"long_haul_threshold_mi": threshold} if threshold else {})})]
-        if intent in ("estimate_unmet_demand", "get_live_status", "explain_airport_score"):
+        if intent == "explain_airport_score":
+            return [(intent, {"airport": codes[0], **_scenario(system_prompt)})]
+        if intent in ("estimate_unmet_demand", "get_live_status"):
             return [(intent, {"airport": codes[0]})]
         return [("get_airport_profile", {"airport": c}) for c in codes[:3]]
 

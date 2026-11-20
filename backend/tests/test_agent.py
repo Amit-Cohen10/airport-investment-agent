@@ -451,3 +451,85 @@ def test_bold_confidence_statement_ends_at_its_sentence():
     assert confidence_overstated(
         "**Confidence: High.** Based on the ranking.", {"rank_expansion_candidates": "medium"}, {}
     )
+
+
+class TestCodexRound3:
+    def test_confidence_is_graded_per_airport_and_analysis(self):
+        from app.agent.guardrails import Grade, confidence_overstated
+
+        graded = [Grade("compare_congestion", "SFO", "high"), Grade("estimate_unmet_demand", "SFO", "medium")]
+        ok = "Confidence: High for SFO congestion; Medium for SFO unmet demand."
+        assert not confidence_overstated(ok, [], graded=graded)
+        assert confidence_overstated("Confidence: High for SFO unmet demand.", [], graded=graded)
+
+    def test_a_shared_level_covers_every_coordinated_target(self):
+        from app.agent.guardrails import Grade, confidence_overstated
+
+        tools = {"compare_congestion": "high", "estimate_unmet_demand": "medium"}
+        assert confidence_overstated("Confidence: High for congestion and unmet demand.", tools)
+        graded = [Grade("compare_congestion", "SFO", "high"), Grade("compare_congestion", "ANC", "low")]
+        assert confidence_overstated("Confidence: High for SFO and ANC.", [], graded=graded)
+        # A clause after ";" that names no level is not covered by the earlier one.
+        assert not confidence_overstated("Confidence: High for congestion; the spill model is an estimate.", tools)
+
+    def test_explicit_confidence_sentences_are_claims(self):
+        from app.agent.guardrails import Grade, confidence_overstated
+
+        graded = [Grade("estimate_unmet_demand", "SFO", "medium")]
+        answer = "Confidence: Medium. I have high confidence in the SFO spill estimate."
+        assert confidence_overstated(answer, [], graded=graded)
+        # Mentioning grades ("the other four are high") is still not a claim.
+        rank = [Grade("rank_expansion_candidates", "MRY", "medium"), Grade("rank_expansion_candidates", None, "medium")]
+        answer = "**Confidence: Medium.** MRY's confidence is medium, and the other four airports are high."
+        assert not confidence_overstated(answer, [], graded=rank)
+
+    async def test_history_evidence_is_chosen_by_airport_not_coincidence(self, service, fake_llm_factory):
+        llm = fake_llm_factory(
+            [
+                ("tools", [("get_airport_profile", {"airport": "SFO"})]),
+                ("text", "SFO profile."),
+                ("tools", [("get_airport_profile", {"airport": "LAX"})]),
+                ("text", "LAX profile."),
+                ("text", "SFO has 4 runways."),
+            ]
+        )
+        runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), InMemorySessionStore())
+        sid = (await runtime.run(None, "SFO?", _noop)).session_id
+        await runtime.run(sid, "LAX?", _noop)
+        reply = (await runtime.run(sid, "How many runways at SFO?", _noop)).to_dict()
+        shown = [e["data"]["airport"]["code"] for e in reply["evidence"]]
+        assert shown == ["SFO"], shown
+
+    async def test_qualitative_follow_up_confidence_is_checked(self, service, fake_llm_factory):
+        llm = fake_llm_factory(
+            [
+                ("tools", [("estimate_unmet_demand", {"airport": "SFO"})]),
+                ("text", "Spill estimate."),
+                ("text", "Confidence: High. The SFO spill estimate is reliable."),
+            ]
+        )
+        runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), InMemorySessionStore())
+        sid = (await runtime.run(None, "SFO unmet demand?", _noop)).session_id
+        reply = (await runtime.run(sid, "How sure are you?", _noop)).to_dict()
+        assert [e["tool"] for e in reply["evidence"]] == ["estimate_unmet_demand"]
+        assert reply["grounding"]["confidence_overstated"]
+
+    async def test_scenario_weights_carry_into_context_until_reset(self, service, fake_llm_factory):
+        from app.agent.context import build_messages
+
+        llm = fake_llm_factory(
+            [
+                ("tools", [("rank_expansion_candidates", {"region": "New England", "demand_momentum_weight": 0.6})]),
+                ("text", "Re-ranked."),
+                ("tools", [("rank_expansion_candidates", {"region": "New England"})]),
+                ("text", "Back to defaults."),
+            ]
+        )
+        sessions = InMemorySessionStore()
+        runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), sessions)
+        sid = (await runtime.run(None, "Weight growth twice as much", _noop)).session_id
+        session = sessions.get_or_create(sid)
+        assert session.scenario_weights == {"demand_momentum_weight": 0.6}
+        assert "demand_momentum_weight=0.6" in build_messages("SYS", session, "Why BGR?", 50_000)[0]["content"]
+        await runtime.run(sid, "Use the default weights", _noop)
+        assert sessions.get_or_create(sid).scenario_weights == {}

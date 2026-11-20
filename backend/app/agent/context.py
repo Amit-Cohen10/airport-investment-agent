@@ -1,7 +1,7 @@
 """Context building: what the model sees on each call.
 
   system prompt (role, rules, data periods, date)
-+ session state (airports in focus from earlier turns)
++ session state (airports in focus from earlier turns, the active what-if scenario)
 + trimmed conversation history (whole turns only; tool calls stay paired with their results)
 + the new user message
 """
@@ -79,6 +79,13 @@ def build_messages(system_prompt: str, session: Session, user_text: str, max_cha
     if session.focus_airports:
         system += (
             f"\n\n## Session state\nAirports discussed so far (most recent last): {', '.join(session.focus_airports)}."
+        )
+    if session.scenario_weights:
+        weights = ", ".join(f"{k}={v}" for k, v in session.scenario_weights.items())
+        system += (
+            f"\nActive what-if scenario (set earlier in this conversation): {weights}. Pass these same weights to "
+            "rank_expansion_candidates and explain_airport_score until the user asks for the default weights, "
+            "and say the scenario is active."
         )
     history = trim_history(session.messages, max_chars)
     return [{"role": "system", "content": system}, *history, {"role": "user", "content": user_text}]

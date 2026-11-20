@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import weakref
 from collections.abc import Awaitable, Callable
@@ -22,7 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.agent.context import build_messages, render_system_prompt, tool_message
-from app.agent.guardrails import check_grounding, confidence_overstated
+from app.agent.guardrails import CLAUSE_TOPICS, Grade, check_grounding, confidence_overstated
 from app.agent.session_store import Session, SessionStore
 from app.agent.tools.registry import ToolRegistry
 from app.domain.models import ToolResult
@@ -40,6 +41,8 @@ WHAT_IF_PARAMS = {
     "revenue_potential_weight",
     "long_haul_threshold_mi",
 }
+WEIGHT_PARAMS = {p for p in WHAT_IF_PARAMS if p.endswith("_weight")}
+SCORING_TOOLS = {"rank_expansion_candidates", "explain_airport_score"}  # the tools that take pillar weights
 
 
 async def _noop(_: dict[str, Any]) -> None:
@@ -206,16 +209,17 @@ class AgentRuntime:
         grounding = check_grounding(answer, results + params)
         # A follow-up answered from earlier results (no new analysis this turn) still shows the evidence
         # it relies on: the earlier analyses whose figures the answer actually uses, labeled as such.
+        # Selection is by the airports and analyses the answer names, then by matching figures, so a
+        # qualitative follow-up ("the SFO spill estimate is reliable") is tied to its evidence too.
         shown = evidence
         from_earlier = False
-        if not evidence and grounding.checked > 0:
+        if not evidence:
             shown = _supporting_results(answer, session.evidence_history)
             from_earlier = bool(shown)
-        # Confidence claims are checked against the evidence the answer rests on (this turn's or carried).
-        grounding.confidence_overstated = confidence_overstated(
-            answer, _tool_confidences(shown), _airport_confidences(shown)
-        )
-        self._update_session(session, new_messages, evidence)
+        # Confidence claims are checked against the evidence the answer rests on (this turn's or carried),
+        # graded per analysis and per airport.
+        grounding.confidence_overstated = confidence_overstated(answer, [], graded=_grades(shown))
+        self._update_session(session, new_messages, evidence, trace)
         return AgentReply(session.id, answer, shown, grounding.to_dict(), trace.to_dict(), from_earlier)
 
     async def _run_tool(self, call_id: str, name: str, arguments: str, emit: Emit, trace: TurnTrace) -> ToolResult:
@@ -249,8 +253,21 @@ class AgentRuntime:
         )
         return result
 
-    def _update_session(self, session: Session, new_messages: list[dict[str, Any]], evidence: list[ToolResult]) -> None:
+    def _update_session(
+        self, session: Session, new_messages: list[dict[str, Any]], evidence: list[ToolResult], trace: TurnTrace
+    ) -> None:
         session.messages.extend(new_messages)
+        # The what-if scenario is whatever weights the latest successful scoring call used (none = defaults).
+        # Later scoring questions keep it until the user resets it (the context tells the model so).
+        scoring = [
+            s
+            for s in trace.steps
+            if s["type"] == "tool" and s.get("ok") and s["tool"] in SCORING_TOOLS and isinstance(s["arguments"], dict)
+        ]
+        if scoring:
+            session.scenario_weights = {
+                k: v for k, v in scoring[-1]["arguments"].items() if k in WEIGHT_PARAMS and v is not None
+            }
         focus = []
         for r in evidence:
             focus += _airports_in(r.data)
@@ -267,43 +284,54 @@ EVIDENCE_HISTORY = 12
 
 
 def _supporting_results(answer: str, history: list[ToolResult], limit: int = 3) -> list[ToolResult]:
-    """Earlier results that contain the answer's figures, best-supported first (never just 'the last one')."""
+    """Earlier results the answer rests on.
+
+    When the answer names airports, only results about those airports qualify (a coincidental figure in
+    another airport's result is not support). Among them: results whose figures the answer uses, or whose
+    analysis it names; most matched figures first, then most recent.
+    """
+    named = set(re.findall(r"\b[A-Z]{3}\b", answer))
+    about = [r for r in history if named & set(_airports_in(r.data))]
+    pool = about or history
+    topics = {t for t, pattern in CLAUSE_TOPICS.items() if pattern.search(answer)}
     scored = []
-    for order, result in enumerate(history):
+    for order, result in enumerate(pool):
         report = check_grounding(answer, [result.for_llm()])
         matched = report.checked - len(report.unverified)
-        if matched > 0:
-            scored.append((matched, order, result))
-    scored.sort(key=lambda t: (-t[0], -t[1]))  # most matches, then most recent
-    return [r for _, _, r in scored[:limit]]
+        on_topic = result.tool in topics
+        if matched > 0 or (on_topic and (about or not named)):
+            scored.append((matched, on_topic, order, result))
+    scored.sort(key=lambda t: (-t[0], -t[1], -t[2]))
+    return [r for *_, r in scored[:limit]]
 
 
-def _tool_confidences(evidence: list[ToolResult]) -> dict[str, str]:
-    """Lowest confidence per tool among the results the answer rests on."""
-    order = {"low": 0, "medium": 1, "high": 2}
-    out: dict[str, str] = {}
+def _grades(evidence: list[ToolResult]) -> list[Grade]:
+    """Every confidence grade in the results: per analysis, and per airport within it."""
+    grades: list[Grade] = []
     for r in evidence:
-        if r.confidence and (r.tool not in out or order[r.confidence.value] < order[out[r.tool]]):
-            out[r.tool] = r.confidence.value
-    return out
-
-
-def _airport_confidences(evidence: list[ToolResult]) -> dict[str, str]:
-    """Per-airport confidence grades found in this turn's results (ranking rows, score breakdowns)."""
-    grades: dict[str, str] = {}
-    for result in evidence:
-        for row in result.data.get("ranking", []) or []:
-            if isinstance(row, dict) and row.get("code") and row.get("confidence"):
-                grades[row["code"]] = row["confidence"]
-        if isinstance(result.data.get("airport"), str) and result.confidence:
-            grades.setdefault(result.data["airport"], result.confidence.value)
+        if r.confidence:
+            grades.append(Grade(r.tool, _primary_airport(r.data), r.confidence.value))
+        for key in ("ranking", "airports"):
+            for row in r.data.get(key, []) or []:
+                if isinstance(row, dict) and row.get("confidence"):
+                    code = row.get("code") or row.get("airport")
+                    if isinstance(code, str):
+                        grades.append(Grade(r.tool, code, str(row["confidence"])))
     return grades
+
+
+def _primary_airport(data: dict[str, Any]) -> str | None:
+    """The single airport a result is about: "airport" is a code, or (profiles) an object with one."""
+    airport = data.get("airport")
+    if isinstance(airport, dict):
+        airport = airport.get("code")
+    return airport if isinstance(airport, str) else None
 
 
 def _airports_in(data: dict[str, Any]) -> list[str]:
     codes: list[str] = []
-    if isinstance(data.get("airport"), str):
-        codes.append(data["airport"])
+    if primary := _primary_airport(data):
+        codes.append(primary)
     for key in ("ranking", "airports"):
         for item in data.get(key, []) or []:
             if isinstance(item, dict):

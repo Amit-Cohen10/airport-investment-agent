@@ -2,6 +2,9 @@
 
 primary (e.g. Gemini free tier) --429/5xx/timeout--> retry with backoff
                                 --still failing---> next provider (e.g. Groq, Claude)
+
+A provider that was exhausted is skipped for a short cooldown, so while a free-tier quota is used up
+each new turn goes straight to the fallback instead of paying the retry delay again.
 """
 
 from __future__ import annotations
@@ -9,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 from typing import Any
 
 from app.config import Settings
@@ -26,7 +30,13 @@ class NoLLMConfiguredError(LLMError):
 class ResilientLLM:
     """Implements the LLMClient protocol over an ordered list of providers."""
 
-    def __init__(self, clients: list[LLMClient], attempts_per_provider: int = 2, base_delay_s: float = 2.0):
+    def __init__(
+        self,
+        clients: list[LLMClient],
+        attempts_per_provider: int = 2,
+        base_delay_s: float = 2.0,
+        cooldown_s: float = 60.0,
+    ):
         if not clients:
             raise NoLLMConfiguredError(
                 "No LLM provider configured. Set GEMINI_API_KEY (or GROQ_API_KEY / ANTHROPIC_API_KEY) in backend/.env"
@@ -34,6 +44,8 @@ class ResilientLLM:
         self.clients = clients
         self.attempts = attempts_per_provider
         self.base_delay_s = base_delay_s
+        self.cooldown_s = cooldown_s
+        self._cooling_until: dict[int, float] = {}  # provider index -> monotonic time it may be tried again
 
     def for_turn(self) -> _TurnLLM:
         """A per-turn view: once a fallback provider has answered, the rest of the turn stays on it
@@ -60,9 +72,15 @@ class ResilientLLM:
         last: Exception | None = None
         for index in range(start, len(self.clients)):
             client = self.clients[index]
+            is_last = index == len(self.clients) - 1
+            if not is_last and self._cooling_until.get(index, 0) > time.monotonic():
+                log.info("%s is cooling down after failures; trying the next provider", client.name)
+                continue
             for attempt in range(1, self.attempts + 1):
                 try:
-                    return await client.chat(messages, tools, tool_choice), index
+                    turn = await client.chat(messages, tools, tool_choice)
+                    self._cooling_until.pop(index, None)
+                    return turn, index
                 except RetryableLLMError as exc:
                     last = exc
                     if attempt < self.attempts:
@@ -74,6 +92,7 @@ class ResilientLLM:
                     log.error("%s failed: %s", client.name, exc)
                     break
             log.warning("provider %s exhausted, failing over", client.name)
+            self._cooling_until[index] = time.monotonic() + self.cooldown_s
         raise LLMError(f"All LLM providers failed. Last error: {last}")
 
 

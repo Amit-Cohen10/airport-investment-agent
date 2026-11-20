@@ -397,13 +397,24 @@ async def test_turn_sticks_to_fallback_provider():
             calls.append("backup")
             return AssistantTurn(content="ok", tool_calls=[], message={}, provider="backup")
 
-    chain = ResilientLLM([Primary(), Backup()], attempts_per_provider=1, base_delay_s=0)
+    chain = ResilientLLM([Primary(), Backup()], attempts_per_provider=1, base_delay_s=0, cooldown_s=0)
     turn = chain.for_turn()
     await turn.chat([])
     await turn.chat([])
     assert calls == ["primary", "backup", "backup"]  # second step does not retry the primary
     await chain.for_turn().chat([])
-    assert calls[-2:] == ["primary", "backup"]  # a new turn tries the primary again
+    assert calls[-2:] == ["primary", "backup"]  # a new turn tries the primary again (no cooldown)
+
+    # With a cooldown, an exhausted primary (e.g. a used-up free-tier quota) is skipped by the next turns,
+    # so they don't pay the retry delay again; it is tried again once the cooldown has passed.
+    calls.clear()
+    chain = ResilientLLM([Primary(), Backup()], attempts_per_provider=1, base_delay_s=0, cooldown_s=60)
+    await chain.for_turn().chat([])
+    await chain.for_turn().chat([])
+    assert calls == ["primary", "backup", "backup"]
+    chain._cooling_until[0] = 0  # cooldown elapsed
+    await chain.for_turn().chat([])
+    assert calls[-2:] == ["primary", "backup"]
 
 
 def test_anthropic_replays_only_current_turn_blocks_and_drops_temperature():
@@ -480,3 +491,23 @@ async def test_offline_airport_follow_up_keeps_scenario_weights(service):
     reply = await rt.run(sid, "What about Bangor?")
     call = [s for s in reply.trace["steps"] if s["type"] == "tool"][0]
     assert call["tool"] == "explain_airport_score" and call["arguments"]["demand_momentum_weight"] == 0.6
+
+
+async def test_offline_score_explanation_keeps_active_scenario(service):
+    """Codex R4: the suggested "Why does Bangor score so high?" must not reset the what-if weights."""
+    from app.agent.runtime import AgentRuntime
+    from app.agent.tools.definitions import build_tools
+    from app.agent.tools.registry import ToolRegistry
+
+    rt = AgentRuntime(
+        OfflinePlanner(service.directory.find_in_text), ToolRegistry(service, build_tools()), InMemorySessionStore()
+    )
+    sid = (await rt.run(None, "Which airports in New England are strong candidates?")).session_id
+    await rt.run(sid, "What if we weight demand growth twice as much?")
+    reply = await rt.run(sid, "Why does Bangor score so high?")
+    call = [s for s in reply.trace["steps"] if s["type"] == "tool"][0]
+    assert call["tool"] == "explain_airport_score"
+    assert call["arguments"] == {"airport": "BGR", "demand_momentum_weight": 0.6}
+    assert any(
+        "67.4" in str(e.get("summary")) or "67.4" in json.dumps(e.get("data")) for e in reply.to_dict()["evidence"]
+    )

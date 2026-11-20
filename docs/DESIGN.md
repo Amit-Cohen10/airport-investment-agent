@@ -222,10 +222,15 @@ The "why" combines:
   - "2.7M" must match a count.
   - An explicit sign must match.
 - Small integers and years are exempt only in context: list markers or "top 3" for small integers; "in 2025" or "2019 levels" for years. So "SFO has 9 runways" or "2000 gates" is still checked.
-- A separate check flags answers that state a **higher confidence than the analyses returned**. Each confidence statement is checked clause by clause: against a named airport's own grade, else the analysis the clause names ("High for congestion"), else the lowest grade among the analyses used.
+- A separate check flags answers that state a **higher confidence than the analyses returned**.
+  - Grades are kept per analysis **and** per airport: "High for SFO congestion; Medium for SFO unmet demand" checks each against SFO's grade for that analysis.
+  - A clause that names only an airport or only an analysis is checked against those grades; otherwise against the lowest grade used.
+  - A level carries across "and" and commas, so "High for congestion and unmet demand" checks both.
+  - Claims are the "Confidence:" statement plus any explicit assertion ("I have high confidence in the SFO spill estimate"). A sentence that only mentions a level ("the other four are high") is not treated as a claim.
+  - It is pattern-based: unusual phrasing can still slip through.
 - The UI wording reflects what the check is: "N figures match the data", or "No figures to check". It does not say "verified".
 - It is a set-membership check, so it catches invented or misread figures. In the eval it caught "NAS delay 11.9 min" when the data said 11.19.
-- What it cannot catch: a wrong number that happens to equal some other value in the evidence. Measured against a full New England ranking payload, a random percentage still passes about 20% of the time, down from about 75% before the unit rules.
+- What it cannot catch: a wrong number that happens to equal some other value in the evidence. Set membership does not prove a number is attached to the right claim. Measured against a full New England ranking payload, a random percentage still passes about 20% of the time, down from about 75% before the unit rules.
 - It is a safety net that makes errors visible, not a proof of correctness. The real protection is architectural: the tables and charts come straight from code.
 
 **Agent runtime** (`agent/runtime.py`):
@@ -237,16 +242,19 @@ The "why" combines:
 6. Run the grounding check on the final answer.
 
 Sessions keep the history, so follow-ups like "what about Bangor?" or "weight growth more" work.
+- **A what-if scenario stays active.** The weights of the latest scoring call are session state, and the model is told to pass them again, for example in "Why does Bangor score so high?", until the user asks for the defaults. The offline planner does the same.
 - A follow-up answered from earlier results, with no new tool call, still shows that earlier evidence in the panel, labeled as coming from an earlier answer.
+  - The evidence is chosen by the airports and analyses the answer names, then by matching figures, so a coincidental number in another airport's result does not count.
+  - Qualitative follow-ups ("the SFO spill estimate is reliable") are tied to their evidence too, and their confidence is checked.
 - Only one turn runs per session at a time.
 
 **LLM provider chain:**
 - Gemini free tier (`gemini-3.5-flash-lite`) first. Groq (`gpt-oss-120b`) comes next only if a Groq key is set. Then Claude, then the offline planner (`LLM_PROVIDERS` sets the order).
 - The Claude model is configurable. The default is `claude-opus-5-5`; the evaluation below ran with `claude-sonnet-5-5`, set in `.env`.
-- One OpenAI-compatible adapter plus an Anthropic adapter, with retry/backoff on 429/5xx and automatic failover.
+- One OpenAI-compatible adapter plus an Anthropic adapter, with retry/backoff on 429/5xx and automatic failover. A provider that was exhausted is skipped for 60 seconds (for example while a free-tier quota is used up).
 - **Offline planner (last in the chain):** if every LLM is unavailable, a keyword intent router runs the same tools and assembles the answer from tool summaries.
   - The answer is labeled as offline mode. It degrades gracefully instead of failing.
-  - Follow-ups keep the previous analysis and its parameters ("weight growth twice as much", "what about Bangor?", "and at 4,000 miles?").
+  - Follow-ups keep the previous analysis and its parameters ("weight growth twice as much", "what about Bangor?", "why does Bangor score so high?", "and at 4,000 miles?").
 
 ---
 
@@ -280,7 +288,7 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
 
 ## 8. Quality
 
-**Automated tests: 145 backend + 10 frontend** (`make test`, `npm test`). No network or API key is needed.
+**Automated tests: 155 backend + 11 frontend** (`make test`, `npm test`). No network or API key is needed.
 - Analytics math checked against closed-form values: spill-model inversion, growth, load factor, fare premium.
 - Scoring on synthetic universes: neutral missing-data policy, confidence grades, weight overrides, bottleneck check.
 - Connectors on synthetic files with mocked HTTP: retries, pagination, form-state changes, atomic downloads and snapshot writes.
@@ -301,7 +309,7 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
 - Frontend SSE parser tested at every chunk split.
 
 **Golden-question eval** (`make eval`; `--hard` adds hard cases): 17 turns across 10 conversations against the real LLMs. Each turn checks:
-- the expected tool was called **successfully**, with the required arguments where set;
+- the expected tool was called **successfully**, with the required arguments where set (for example, the follow-up "Why does Bangor score so high?" must keep the what-if weights);
 - every figure matches a value from the analyses;
 - the stated confidence does not exceed the analyses';
 - required content is present;
@@ -309,23 +317,24 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
 
 Hard cases cover multi-tool questions, ambiguity ("Portland"), data the system does not have (gate counts, construction costs), and a prompt-injection attempt. Passing means passing these checks: it is a regression suite for agent behavior, not proof of factual correctness.
 
-**Model comparison** (same 17 turns, same checks; `evals/report.md` and `evals/report_claude.md`):
+**Model comparison** (same 17 turns; `evals/report.md` and `evals/report_claude.md`):
 
 | | Gemini `gemini-3.5-flash-lite` (free tier) | Claude `claude-sonnet-5-5` (paid) |
 |---|---|---|
-| Turns passed | **17/17** | **17/17** |
-| Figures matching the data | 245/245 | 464/464 |
-| Avg latency | **4.0 s** | 7.9 s |
+| Turns passed | 17/17 (previous checks, see below) | **16/17** (current checks) |
+| Figures matching the data | 245/245 | 469/471 |
+| Avg latency | **4.0 s** | 8.1 s |
 | Cost | free (rate-limited) | ~$0.05 per question |
 | Style | concise | more detailed (almost twice as many figures per answer) |
 
-Notes on the run:
-- These are the final runs after the second Codex review; the saved reports are exactly these runs. Results vary from run to run: earlier runs in the same round scored 15-16/17 (Gemini) and 14-16/17 (Claude).
-- Those failures were of two kinds:
-  - **Checker gaps**, each fixed with a regression test: a number that existed only in a field name (`rank_range_90`, now an explicit `rank_range_interval_pct`), explanatory sentences read as confidence claims, a bolded confidence line, and a refusal list that missed "will not".
-  - **Real model slips the guardrail is meant to catch:** derived numbers ("less than 1.2 million passengers of headroom", "over 120,000 spilled passengers each"), a truncation ("~9" for 9.7), and a confidence level the model gave to curated notes. Two prompt rules were added: grade only what the tools graded, and refuse dictated figures explicitly.
+Notes on the runs:
+- **Claude** ran on the current code and checks. Its one failure is real: it decoded a raw METAR remark ("light rain ended at about 12:45 UTC"), said itself that the tool does not state it, and the guardrail flagged the derived "45".
+- **Gemini's saved report is from the previous round's checks.** Its "Why does Bangor score so high?" turn used the default weights, which the current eval fails (the follow-up must keep the what-if scenario). Re-running it after the round-3 changes hit the free tier's daily quota (HTTP 429 on every call), so that run is pending.
+- Results vary from run to run: earlier runs scored 15-17/17 (Gemini) and 14-17/17 (Claude). The failures were of two kinds:
+  - **Checker gaps**, each fixed with a regression test: a number that existed only in a field name (`rank_range_90`, now an explicit `rank_range_interval_pct`), explanatory sentences read as confidence claims, a bolded confidence line, a refusal list that missed "will not", and follow-ups that silently dropped the what-if scenario.
+  - **Real model slips the guardrail is meant to catch:** derived numbers ("less than 1.2 million passengers of headroom", "over 120,000 spilled passengers each", the METAR "45"), a truncation ("~9" for 9.7), and a confidence level the model gave to curated notes. Prompt rules were added: grade only what the tools graded, refuse dictated figures explicitly, and keep an active what-if scenario.
 - Explicit units on every metric (`unit` field) removed Claude's earlier recurring slip, a 0.005 pp gap reported as "0.5 pp".
-- **Decision:** Gemini is primary (about 2x faster, which matters for a live demo and voice, and free for reviewers), with Claude as the automatic backup. Swapping the order is one env var (`LLM_PROVIDERS`) if answer depth matters more than speed.
+- **Decision:** Gemini is the default primary (about 2x faster, and free for reviewers), with Claude as the automatic backup. Swapping the order is one env var (`LLM_PROVIDERS`). Because the free quota can run out, an exhausted provider is skipped for 60 s, so later turns go straight to the backup instead of paying the retry delay each time.
 
 Iterating on the eval surfaced real issues:
 - Follow-ups re-derived numbers instead of re-running tools (now a prompt rule).
@@ -335,7 +344,7 @@ Iterating on the eval surfaced real issues:
 
 **Provider failover verified live:** with Gemini forced to fail, Claude (`claude-sonnet-5-5`) answered the same questions with every number grounded.
 
-**Four review rounds** (two independent code reviews, then two external reviews with Codex: a full review and a verification re-review), each finding fixed with a regression test. The most important:
+**Five review rounds** (two independent code reviews, then three external reviews with Codex: a full review and two verification re-reviews), each finding fixed with a regression test. The most important:
 - **Security:** API keys were being copied into the Docker image; `.env` is now excluded.
 - **Data joins:** FAA and IATA codes differed, renamed airports split their history, and territories were missing.
 - **Scoring:** re-weighting rewarded data gaps; replaced by neutral imputation.
@@ -353,6 +362,12 @@ Iterating on the eval surfaced real issues:
   - Every confidence statement is checked, clause by clause, not only the first; explanatory sentences that merely mention a level are not treated as claims.
   - A follow-up answered from history shows the analysis it actually used.
   - The offline planner keeps what-if weights on airport follow-ups.
+- **Second verification round (Codex #3):**
+  - The what-if scenario stays active across follow-ups (the suggested "Why does Bangor score so high?" had reset it), and the eval now requires it.
+  - Confidence grades are matched per airport and per analysis; a shared level covers every coordinated target; explicit confidence sentences are claims.
+  - Earlier evidence is chosen by airport and analysis, not by coincidental numbers, including for qualitative follow-ups.
+  - The injection check handles coordinated clauses ("I will not make up data and BOS has a score of 99" is an assertion) and introduced quotations ("I cannot assert the following: ..." is not).
+  - Scored airports such as USA (Concord-Padgett) always render as airport codes.
 
 **Ingest validation contracts:**
 - Checks: required columns, no nulls in required fields, unique keys, no missing or truncated months, anchor airports present in the latest month, row counts, non-negative values.
