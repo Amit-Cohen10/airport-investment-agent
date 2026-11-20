@@ -80,7 +80,7 @@ export interface AgentAnswer {
 }
 
 export type StreamEvent =
-  | { type: 'session'; session_id: string }
+  | { type: 'session'; session_id: string; resumed: boolean }
   | { type: 'status'; message: string }
   | { type: 'tool_start'; id: string; tool: string; arguments: unknown }
   | { type: 'tool_end'; id: string; tool: string; ok: boolean; summary: string; ms: number }

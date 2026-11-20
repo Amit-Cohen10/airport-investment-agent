@@ -8,3 +8,8 @@ backend/data/raw
 backend/data/cache
 .git
 *.zip
+
+# Secrets: never bake keys into an image; pass them at runtime via env_file / environment
+**/.env
+**/.env.*
+!**/.env.example

@@ -25,6 +25,7 @@ class ScoreConfig:
     min_enplanements: float
     high_min_coverage: float
     medium_min_coverage: float
+    missing_percentile: float = 50.0
 
     @classmethod
     def from_dict(cls, cfg: dict[str, Any]) -> ScoreConfig:
@@ -34,6 +35,7 @@ class ScoreConfig:
             min_enplanements=cfg["peer_universe"]["min_annual_enplanements"],
             high_min_coverage=es["confidence"]["high_min_coverage"],
             medium_min_coverage=es["confidence"]["medium_min_coverage"],
+            missing_percentile=es.get("missing_metric_percentile", 50.0),
         )
 
     def pillar_weights(self, overrides: dict[str, float] | None = None) -> dict[str, float]:
@@ -85,8 +87,13 @@ def score_universe(
         m_weights = {m: s["weight"] for m, s in metrics.items()}
         scores, covs = [], []
         for code in peers.index:
-            vals = {m: out.at[code, f"pct__{m}"] for m in metrics}
-            score, cov = weighted_mean(vals, m_weights)
+            raw = {m: out.at[code, f"pct__{m}"] for m in metrics}
+            _, cov = weighted_mean(raw, m_weights)  # share of this pillar's weight backed by data
+            # Missing data is neutral: imputed at the median percentile, so a gap is neither
+            # rewarded (as re-normalizing over the remaining metrics would do) nor punished.
+            # The gap shows up in coverage -> confidence instead.
+            filled = {m: (cfg.missing_percentile if pd.isna(v) else v) for m, v in raw.items()}
+            score, _ = weighted_mean(filled, m_weights)
             scores.append(score)
             covs.append(cov)
         out[f"pillar__{pillar}"] = scores
@@ -120,6 +127,7 @@ def explain_airport(scored: ScoredUniverse, features: pd.DataFrame, code: str, c
                     "label": mspec["label"],
                     "value": None if pd.isna(raw) else float(raw),
                     "percentile": None if pd.isna(pct) else round(float(pct), 1),
+                    "imputed": bool(pd.isna(pct)),  # missing -> scored at the neutral median
                     "weight_in_pillar": mspec["weight"],
                 }
             )

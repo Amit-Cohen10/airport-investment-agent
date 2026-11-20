@@ -134,6 +134,7 @@ def test_ourairports_counts_only_open_paved_long_runways():
             "iso_region": ["US-CA"],
             "municipality": ["Santa Ana"],
             "iata_code": ["SNA"],
+            "local_code": ["SNA"],
             "icao_code": ["KSNA"],
             "gps_code": ["KSNA"],
             "keywords": [None],

@@ -28,9 +28,24 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
     <div
       className={`rounded-2xl rounded-bl-sm border bg-white px-4 py-3 shadow-sm transition ${
         selected ? 'border-brand-500 ring-2 ring-brand-100' : 'border-slate-200'
-      } ${answer ? 'cursor-pointer' : ''}`}
+      } ${answer ? 'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500' : ''}`}
       onClick={answer ? onSelect : undefined}
+      role={answer ? 'button' : undefined}
+      tabIndex={answer ? 0 : undefined}
+      aria-label={answer ? 'Show the evidence for this answer' : undefined}
+      aria-pressed={answer ? selected : undefined}
+      onKeyDown={
+        answer
+          ? (e) => {
+              if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault()
+                onSelect()
+              }
+            }
+          : undefined
+      }
     >
+      {message.notice && <p className="mb-2 rounded-lg bg-sky-50 px-3 py-1.5 text-xs text-sky-800">{message.notice}</p>}
       {(message.steps?.length ?? 0) > 0 && (
         <ul className="mb-2 space-y-1">
           {message.steps!.map((s, i) => (

@@ -35,6 +35,13 @@ class ResilientLLM:
         self.attempts = attempts_per_provider
         self.base_delay_s = base_delay_s
 
+    def for_turn(self) -> _TurnLLM:
+        """A per-turn view: once a fallback provider has answered, the rest of the turn stays on it
+        (no re-hammering a rate-limited primary on every step, and no mixing providers mid-turn,
+        which can break provider-specific state such as Gemini thought signatures).
+        The next turn starts from the primary again."""
+        return _TurnLLM(self)
+
     @property
     def name(self) -> str:
         return self.clients[0].name
@@ -44,11 +51,18 @@ class ResilientLLM:
         return self.clients[0].model
 
     async def chat(self, messages: list[dict[str, Any]], tools=None, tool_choice: str = "auto") -> AssistantTurn:
+        turn, _ = await self.chat_from(0, messages, tools, tool_choice)
+        return turn
+
+    async def chat_from(
+        self, start: int, messages: list[dict[str, Any]], tools=None, tool_choice: str = "auto"
+    ) -> tuple[AssistantTurn, int]:
         last: Exception | None = None
-        for client in self.clients:
+        for index in range(start, len(self.clients)):
+            client = self.clients[index]
             for attempt in range(1, self.attempts + 1):
                 try:
-                    return await client.chat(messages, tools, tool_choice)
+                    return await client.chat(messages, tools, tool_choice), index
                 except RetryableLLMError as exc:
                     last = exc
                     if attempt < self.attempts:
@@ -61,6 +75,17 @@ class ResilientLLM:
                     break
             log.warning("provider %s exhausted, failing over", client.name)
         raise LLMError(f"All LLM providers failed. Last error: {last}")
+
+
+class _TurnLLM:
+    def __init__(self, chain: ResilientLLM):
+        self.chain = chain
+        self.start = 0
+        self.name, self.model = chain.name, chain.model
+
+    async def chat(self, messages: list[dict[str, Any]], tools=None, tool_choice: str = "auto") -> AssistantTurn:
+        turn, self.start = await self.chain.chat_from(self.start, messages, tools, tool_choice)
+        return turn
 
 
 def build_llm(settings: Settings, fallback: LLMClient | None = None) -> ResilientLLM:

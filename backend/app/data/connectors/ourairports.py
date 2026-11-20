@@ -17,18 +17,20 @@ SOURCE_URL = "https://ourairports.com/data/"
 AIRPORTS_URL = "https://davidmegginson.github.io/ourairports-data/airports.csv"
 RUNWAYS_URL = "https://davidmegginson.github.io/ourairports-data/runways.csv"
 MIN_RUNWAY_FT = 4000  # runways shorter than this cannot serve typical airline jets
-PAVED = ("ASP", "CON", "PEM", "ASPH", "CONC", "BIT")
+PAVED = ("ASP", "CON", "PEM", "PER", "ASPH", "CONC", "BIT")  # PER = "permanent" (paved)
+# US states plus territories with FAA-reported commercial airports (San Juan, Guam, Saipan...).
+COUNTRIES = {"US", "PR", "VI", "GU", "MP", "AS"}
 
 
 def build(client: httpx.Client, raw_dir: Path) -> pd.DataFrame:
     airports = pd.read_csv(
-        download_file(client, AIRPORTS_URL, raw_dir / "ourairports" / "airports.csv"),
+        download_file(client, AIRPORTS_URL, raw_dir / "ourairports" / "airports.csv", max_age_days=7),
         keep_default_na=False,
         na_values=[""],
         low_memory=False,
     )
     runways = pd.read_csv(
-        download_file(client, RUNWAYS_URL, raw_dir / "ourairports" / "runways.csv"),
+        download_file(client, RUNWAYS_URL, raw_dir / "ourairports" / "runways.csv", max_age_days=7),
         keep_default_na=False,
         na_values=[""],
         low_memory=False,
@@ -38,11 +40,11 @@ def build(client: httpx.Client, raw_dir: Path) -> pd.DataFrame:
 
 def normalize(airports: pd.DataFrame, runways: pd.DataFrame) -> pd.DataFrame:
     us = airports[
-        (airports["iso_country"] == "US")
+        airports["iso_country"].isin(COUNTRIES)
         & airports["iata_code"].notna()
         & airports["type"].isin(["large_airport", "medium_airport", "small_airport"])
     ].copy()
-    us["state"] = us["iso_region"].str.split("-").str[1]
+    us["state"] = us["iso_region"].str.split("-").str[1].where(us["iso_country"] == "US", us["iso_country"])
 
     rw = runways[runways["closed"].fillna(0).astype(int) == 0].copy()
     rw["length_ft"] = pd.to_numeric(rw["length_ft"], errors="coerce")
@@ -68,6 +70,7 @@ def normalize(airports: pd.DataFrame, runways: pd.DataFrame) -> pd.DataFrame:
     cols = [
         "code",
         "icao",
+        "local_code",
         "name",
         "city",
         "state",

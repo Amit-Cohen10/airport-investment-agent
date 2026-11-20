@@ -39,8 +39,11 @@ expansion_score:
       metrics:
         log_enplanements: {weight: 0.60, higher_is_better: true, label: "Scale (log CY2025 enplanements)"}
         fare_premium: {weight: 0.40, higher_is_better: true, label: "Fare premium vs distance-adjusted US norm"}
+  # Missing metrics are scored at this neutral percentile (neither rewarded nor punished); the gap
+  # lowers coverage and therefore the confidence grade.
+  missing_metric_percentile: 50
   confidence:
-    high_min_coverage: 0.90    # share of metric weight with data
+    high_min_coverage: 0.95    # share of metric weight backed by real data; any material gap -> at most Medium
     medium_min_coverage: 0.70
   sensitivity:
     samples: 1000
@@ -70,6 +73,6 @@ unmet_demand:
   demand_cv: 0.30                    # coefficient of variation of demand; industry spill models use ~0.25-0.40
   cv_sensitivity: [0.20, 0.30, 0.40]
   min_load_factor_for_spill: 0.60    # below this, spill is negligible; skip the computation
-  max_load_factor: 0.985             # numerical guard: LF ~100% implies unbounded demand
+  max_load_factor: 0.95              # route-months above 95% LF are capped: LF -> 100% implies unbounded demand
   target_load_factor: 0.85           # LF used to convert spilled passengers into "extra flights"
   constrained_route_lf: 0.85         # routes above this are "capacity constrained"

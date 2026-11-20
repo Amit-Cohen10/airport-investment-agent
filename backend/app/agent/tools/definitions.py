@@ -131,7 +131,7 @@ def rank_handler(args: RankArgs, svc: InsightService) -> ToolResult:
             series=[
                 BarSeries(
                     name=labels[p],
-                    values=[round((r["pillars"][p] or 0) * r["effective_weights"][p], 1) for r in ranking],
+                    values=[round((r["pillars"][p] or 0) * weights[p], 1) for r in ranking],
                 )
                 for p in pillars
             ],

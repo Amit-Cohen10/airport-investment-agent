@@ -179,6 +179,10 @@ class AirportDirectory:
             return Resolution(
                 text, self.airports_in_states(states), "region", note=f"{name}: states {', '.join(states)}"
             )
+        if len(q) == 3 and q.isalpha():
+            # Looks like a code (e.g. "SCE") but is not one we know: never substring-match it into
+            # an unrelated airport ("SCE" in "CRESCENT CITY").
+            return Resolution(text, [], "none", note=f"'{q}' is not a known US commercial airport code")
         city = self.df[self.df["city_u"] == q]
         if len(city):
             return self._with_metro(Resolution(text, [city.index[0]], "city", alternatives=list(city.index[1:])))

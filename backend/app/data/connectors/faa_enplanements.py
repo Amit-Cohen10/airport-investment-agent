@@ -66,7 +66,9 @@ def _parse(path: Path, years: tuple[int, int]) -> pd.DataFrame:
 def build(client: httpx.Client, raw_dir: Path) -> pd.DataFrame:
     frames = []
     for label, (url, years) in FILES.items():
-        path = download_file(client, url, raw_dir / "faa" / f"enplanements_{label}.xlsx")
+        # The newest file is revised (preliminary -> final); older ones are immutable.
+        max_age = 30 if label == next(iter(FILES)) else None
+        path = download_file(client, url, raw_dir / "faa" / f"enplanements_{label}.xlsx", max_age_days=max_age)
         frames.append(_parse(path, years))
     df = pd.concat(frames, ignore_index=True)
     # A year can appear in two files (as "current" and as "previous"); prefer the newer file,

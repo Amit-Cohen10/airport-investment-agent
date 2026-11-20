@@ -106,7 +106,8 @@ class InsightService:
         code = code.strip().upper()
         if code not in self.directory.df.index:
             res = self.directory.resolve(code)
-            if len(res.codes) == 1:
+            # Only unambiguous identifiers are auto-accepted (ICAO, alias); never a fuzzy/substring guess.
+            if len(res.codes) == 1 and res.kind in ("code", "alias"):
                 return res.codes[0]
             raise AnalysisError(
                 f"'{code}' is not a US commercial-service airport in the data. Call resolve_airports first."
@@ -196,8 +197,6 @@ class InsightService:
                     "national_rank": int(row["national_rank"]),
                     "confidence": row["confidence"],
                     "pillars": {p: row[f"pillar__{p}"] for p in pillars},
-                    # Weights actually applied: missing pillars are dropped and the rest re-normalized.
-                    "effective_weights": _effective_weights(row, pillars, scored.pillar_weights),
                     "key_metrics": {
                         "enplanements_cy_latest": f["enplanements_latest"],
                         "enplanement_cagr_3y": f["enplanement_cagr_3y"],
@@ -367,8 +366,12 @@ class InsightService:
                 "Peak-hour movements = average over days of the busiest scheduled clock hour (deps + arrs).",
                 "Total passengers estimated as 2x enplanements when comparing against a passenger cap.",
             ],
-            caveats=["On-time data covers reporting carriers' domestic flights only (no international/cargo)."],
-            confidence=Confidence.HIGH,
+            caveats=[
+                "On-time data covers reporting carriers' domestic flights only (no international/cargo); "
+                "'ontime_sample_coverage' is their share of the airport's domestic departures. Peak-hour "
+                "movements count those flights only, so gateways with much foreign/cargo traffic read low.",
+            ],
+            confidence=_min_confidence([a["confidence"] for a in ordered]),
         )
 
     # --- 5. route mix -------------------------------------------------------
@@ -530,12 +533,6 @@ class InsightService:
             self._prov("ontime_monthly", self.periods["ontime"]),
             self._prov("airfare_markets", self.periods["fares"]),
         ]
-
-
-def _effective_weights(row: pd.Series, pillars: list[str], weights: dict[str, float]) -> dict[str, float]:
-    present = {p: w for p, w in weights.items() if not pd.isna(row[f"pillar__{p}"])}
-    total = sum(present.values()) or 1.0
-    return {p: present.get(p, 0.0) / total for p in pillars}
 
 
 def _min_confidence(values: list[str]) -> Confidence:

@@ -56,11 +56,12 @@ def enplanement_features(enpl: pd.DataFrame) -> pd.DataFrame:
 
 def traffic_features(t100: pd.DataFrame) -> tuple[pd.DataFrame, Window]:
     ttm, prev = ttm_windows(t100["month"])
-    cols = ["departures", "passengers", "seats", "freight_lbs", "intl_departures", "intl_passengers"]
+    cols = ["departures", "dom_departures", "passengers", "seats", "freight_lbs", "intl_departures", "intl_passengers"]
     cur = _in(t100, ttm).groupby("airport")[cols].sum()
     old = _in(t100, prev).groupby("airport")[["passengers", "seats"]].sum()
     out = pd.DataFrame(index=cur.index)
     out["departures_ttm"] = cur["departures"]
+    out["dom_departures_ttm"] = cur["dom_departures"]
     out["passengers_ttm"] = cur["passengers"]
     out["seats_ttm"] = cur["seats"]
     out["freight_lbs_ttm"] = cur["freight_lbs"]
@@ -164,12 +165,32 @@ class FeatureSet:
     periods: dict[str, str]  # human-readable period per source family
 
 
+ONTIME_METRICS = [
+    "taxi_out_avg_min",
+    "dep_delay_rate",
+    "dep_delay_avg_min",
+    "arr_delay_rate",
+    "arr_delay_avg_min",
+    "cancellation_rate",
+    "nas_delay_per_arrival_min",
+    "peak_hour_movements",
+    "peak_hour_movements_per_runway",
+    "share_nas",
+    "share_weather",
+    "share_carrier",
+    "share_late_aircraft",
+    "share_security",
+    "active_hours_per_day",
+]
+
+
 def build_features(
     airports: pd.DataFrame,
     enplanements: pd.DataFrame,
     t100_monthly: pd.DataFrame,
     ontime_monthly: pd.DataFrame,
     airfare_markets: pd.DataFrame,
+    min_ontime_coverage: float = 0.2,
 ) -> FeatureSet:
     enpl = enplanement_features(enplanements)
     traffic, traffic_w = traffic_features(t100_monthly)
@@ -179,6 +200,13 @@ def build_features(
     table = enpl.join(ref, how="left").join(traffic, how="left").join(ontime, how="left").join(fares, how="left")
     runways = table["runways"].where(table["runways"] > 0)
     table["peak_hour_movements_per_runway"] = table["peak_hour_movements"] / runways
+    # On-time data covers only BTS "reporting carriers" (large US airlines, domestic flights).
+    # Coverage = their share of all domestic departures (T-100, which also counts cargo and small
+    # carriers, so it is an approximate lower bound). Where coverage is tiny, on-time rates come
+    # from an unrepresentative sample, so they are dropped rather than trusted.
+    table["ontime_coverage"] = (table["ontime_departures_ttm"] / table["dom_departures_ttm"]).clip(upper=1.0)
+    unreliable = table["ontime_coverage"] < min_ontime_coverage
+    table.loc[unreliable, ONTIME_METRICS] = np.nan
     years = sorted(enplanements["year"].unique())
     periods = {
         "enplanements": f"CY{years[-1] - 3}-CY{years[-1]} (CY{years[-1]} preliminary), CY2019 baseline",

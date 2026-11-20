@@ -113,6 +113,7 @@ class AgentRuntime:
         self.max_steps = max_steps
         self.history_max_chars = history_max_chars
         self.tool_timeout_s = tool_timeout_s
+        self._locks: dict[str, asyncio.Lock] = {}
 
     def _system_prompt(self) -> str:
         repo = self.registry.service.repo
@@ -120,7 +121,15 @@ class AgentRuntime:
 
     async def run(self, session_id: str | None, user_text: str, emit: Emit = _noop) -> AgentReply:
         session = self.sessions.get_or_create(session_id)
-        await emit({"type": "session", "session_id": session.id})
+        # One turn at a time per session, so concurrent requests can't interleave their history.
+        async with self._locks.setdefault(session.id, asyncio.Lock()):
+            return await self._run_locked(session, session_id, user_text, emit)
+
+    async def _run_locked(self, session: Session, requested_id: str | None, user_text: str, emit: Emit) -> AgentReply:
+        # resumed=False with a requested id means the server no longer had that conversation
+        # (expired or restarted): the UI tells the user the context was reset.
+        await emit({"type": "session", "session_id": session.id, "resumed": session.resumed or requested_id is None})
+        llm = self.llm.for_turn() if hasattr(self.llm, "for_turn") else self.llm
         messages = build_messages(self._system_prompt(), session, user_text, self.history_max_chars)
         new_messages: list[dict[str, Any]] = [messages[-1]]  # appended to the session at the end
         evidence: list[ToolResult] = []
@@ -130,7 +139,7 @@ class AgentRuntime:
 
         for step in range(self.max_steps):
             await emit({"type": "status", "message": "Thinking..." if step == 0 else "Reviewing results..."})
-            turn = await self.llm.chat(messages, tools)
+            turn = await llm.chat(messages, tools)
             trace.record_llm(turn)
             if not turn.tool_calls:
                 answer = (turn.content or "").strip()
@@ -161,17 +170,17 @@ class AgentRuntime:
                     "synthetic": True,
                 }
             )
-            turn = await self.llm.chat(messages, tools, tool_choice="none")
+            turn = await llm.chat(messages, tools, tool_choice="none")
             trace.record_llm(turn)
             answer = (turn.content or "").strip() or "I could not complete this analysis. Please rephrase the question."
             new_messages.append({"role": "assistant", "content": answer})
 
-        # Numbers may legitimately come from this turn's tools or from earlier turns' tool results.
-        earlier = [_safe_json(m["content"]) for m in session.messages if m.get("role") == "tool"]
-        # Tool arguments count too (e.g. the weight the model itself chose for a what-if).
+        # Evidence = exactly the tool results the model had in its context (this turn and the
+        # history it was shown), plus the tool arguments it chose (e.g. a what-if weight).
+        # The user's own text is never evidence.
+        seen = [_safe_json(m["content"]) for m in messages if m.get("role") == "tool"]
         arguments = [s["arguments"] for s in trace.steps if s["type"] == "tool" and isinstance(s["arguments"], dict)]
-        payloads = [r.for_llm() for r in evidence] + [p for p in earlier if isinstance(p, dict)] + arguments
-        grounding = check_grounding(answer, payloads, user_text)
+        grounding = check_grounding(answer, [p for p in seen if isinstance(p, dict)] + arguments)
         self._update_session(session, new_messages, evidence)
         return AgentReply(session.id, answer, evidence, grounding.to_dict(), trace.to_dict())
 

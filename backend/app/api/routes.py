@@ -87,7 +87,8 @@ async def chat_sync(body: ChatRequest, request: Request) -> dict[str, Any]:
     try:
         reply = await _runtime(request).run(body.session_id, body.message)
     except LLMError as exc:
-        raise HTTPException(503, str(exc)) from exc
+        log.warning("LLM failure: %s", exc)  # details stay in server logs, not in the response
+        raise HTTPException(503, "The language model is unavailable right now. Please retry shortly.") from exc
     return reply.to_dict()
 
 

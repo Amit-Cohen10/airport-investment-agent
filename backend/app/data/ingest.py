@@ -27,7 +27,7 @@ import pandas as pd
 
 from app.config import get_settings
 from app.data import validation
-from app.data.codes import canonicalize
+from app.data.codes import canonicalize, lid_to_iata
 from app.data.connectors import (
     bts_airfare,
     bts_ontime,
@@ -93,6 +93,12 @@ def build_tables(client: httpx.Client, raw_dir: Path) -> dict[str, tuple[Callabl
     }
 
 
+def _lid_map(snapshot_dir: Path) -> dict[str, str]:
+    """FAA LID -> IATA bridge from the (already refreshed) airports table."""
+    path = snapshot_dir / "airports.parquet"
+    return lid_to_iata(pd.read_parquet(path)) if path.exists() else {}
+
+
 def describe_period(name: str, df: pd.DataFrame) -> str:
     if name == "enplanements":
         years = [int(y) for y in sorted(df["year"].unique()) if y >= 2019]
@@ -119,7 +125,7 @@ def run(only: list[str] | None = None) -> dict:
                 continue
             started = time.time()
             try:
-                df = canonicalize(name, builder())
+                df = canonicalize(name, builder(), lid_map=_lid_map(snapshot_dir))
                 validation.validate(name, df)
                 df.to_parquet(snapshot_dir / f"{name}.parquet", index=False, compression="zstd")
                 manifest["tables"][name] = {

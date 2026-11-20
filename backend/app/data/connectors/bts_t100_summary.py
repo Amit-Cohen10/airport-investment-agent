@@ -39,7 +39,7 @@ def fetch(client: httpx.Client, since_year: int = 2019) -> pd.DataFrame:
         DATASET_ID,
         select=list(COLUMNS),
         where=f"year >= '{since_year}'",
-        order="reporting_month, origin_airport_code",
+        order="reporting_month, origin_airport_code, :id",  # :id makes paging order unique
     )
     return normalize(raw)
 

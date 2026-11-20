@@ -4,8 +4,8 @@
       "source": "OurAirports open data",
       "url": "https://ourairports.com/data/",
       "period": "as of Nov 2026",
-      "rows": 1945,
-      "fetched_at": "2026-11-20T08:17:42Z",
+      "rows": 1965,
+      "fetched_at": "2026-11-20T08:42:17Z",
       "status": "ok"
     },
     "enplanements": {
@@ -13,7 +13,7 @@
       "url": "https://www.faa.gov/airports/planning_capacity/passenger_allcargo_stats/passenger",
       "period": "CY2019, CY2022, CY2023, CY2024, CY2025 (latest preliminary)",
       "rows": 3080,
-      "fetched_at": "2026-11-20T08:18:57Z",
+      "fetched_at": "2026-11-20T08:42:17Z",
       "status": "ok"
     },
     "t100_monthly": {
@@ -49,5 +49,5 @@
       "status": "ok"
     }
   },
-  "generated_at": "2026-11-20T08:18:57Z"
+  "generated_at": "2026-11-20T08:42:17Z"
 }

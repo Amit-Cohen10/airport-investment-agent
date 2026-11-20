@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any
 
 import openai
@@ -80,7 +81,11 @@ class OpenAICompatClient:
         raw = msg.model_dump(exclude_none=True)
         raw["role"] = "assistant"
         calls = [
-            ToolCall(id=tc.id or f"call_{i}", name=tc.function.name, arguments=tc.function.arguments or "{}")
+            ToolCall(
+                id=tc.id or f"call_{uuid.uuid4().hex[:12]}",
+                name=tc.function.name,
+                arguments=tc.function.arguments or "{}",
+            )
             for i, tc in enumerate(msg.tool_calls or [])
         ]
         if calls:  # make sure ids in history match what we return

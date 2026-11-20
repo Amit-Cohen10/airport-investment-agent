@@ -12,6 +12,8 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+MAX_TURNS = 30
+
 
 @dataclass
 class Session:
@@ -19,6 +21,7 @@ class Session:
     messages: list[dict[str, Any]] = field(default_factory=list)  # canonical history, no system prompt
     focus_airports: list[str] = field(default_factory=list)  # airports discussed most recently
     last_tools: list[str] = field(default_factory=list)
+    resumed: bool = False  # False when a client sent an id we no longer have (expired / restarted)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -39,13 +42,19 @@ class InMemorySessionStore:
         self._evict()
         if session_id and session_id in self._sessions:
             self._sessions.move_to_end(session_id)
-            return self._sessions[session_id]
+            session = self._sessions[session_id]
+            session.resumed = True
+            return session
         session = Session(id=session_id or uuid.uuid4().hex)
         self._sessions[session.id] = session
         return session
 
     def save(self, session: Session) -> None:
         session.updated_at = time.time()
+        # Bound memory: keep the last MAX_TURNS turns (a turn starts at a user message).
+        starts = [i for i, m in enumerate(session.messages) if m.get("role") == "user"]
+        if len(starts) > MAX_TURNS:
+            session.messages = session.messages[starts[-MAX_TURNS] :]
         self._sessions[session.id] = session
         self._sessions.move_to_end(session.id)
 

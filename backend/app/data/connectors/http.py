@@ -63,9 +63,24 @@ def request_with_retry(
     raise SourceUnavailableError(f"{method} {url} failed after {attempts} attempts: {last_error}")
 
 
-def download_file(client: httpx.Client, url: str, dest: Path, *, method: str = "GET", **kwargs: Any) -> Path:
-    """Stream a (possibly large) file to disk atomically. Skips the download if cached."""
-    if dest.exists() and dest.stat().st_size > 0:
+def download_file(
+    client: httpx.Client,
+    url: str,
+    dest: Path,
+    *,
+    method: str = "GET",
+    max_age_days: float | None = None,
+    **kwargs: Any,
+) -> Path:
+    """Stream a (possibly large) file to disk atomically.
+
+    Cached files are reused: forever for immutable sources (a closed month or year), or for
+    `max_age_days` for sources that get revised (current-year files, reference data).
+    """
+    fresh = (
+        max_age_days is None or (time.time() - dest.stat().st_mtime) < max_age_days * 86400 if dest.exists() else False
+    )
+    if dest.exists() and dest.stat().st_size > 0 and fresh:
         log.info("cache hit %s", dest.name)
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)

@@ -5,6 +5,10 @@ is written, every number in it is matched against the numbers returned by the to
 this turn (with rounding tolerance and unit scaling: 0.292 <-> 29.2%, 2665790 <-> 2.7M).
 Numbers that match nothing are flagged as "unverified" in the UI, so a hallucinated
 statistic is visible instead of silently trusted.
+
+Precision rules: the evidence is only what the model was actually shown (the tool messages in
+its context), conversions follow each field's unit (only fraction fields like `load_factor` may
+appear as %), explicit signs must match, and the user's own text is never evidence.
 """
 
 from __future__ import annotations
@@ -19,7 +23,23 @@ NUMBER = re.compile(
 )
 
 
-TEXT_SCALE = {"k": 1e3, "thousand": 1e3, "m": 1e6, "million": 1e6, "b": 1e9, "billion": 1e9, "%": 0.01, "percent": 0.01}
+TEXT_SCALE = {"k": 1e3, "thousand": 1e3, "m": 1e6, "million": 1e6, "b": 1e9, "billion": 1e9}
+
+# Field names whose values are fractions (0.292) that answers show as percent (29.2%).
+FRACTION_KEY = re.compile(
+    r"rate|share|growth|cagr|yoy|load_factor|(?:^|\.)lf(?:$|\.)|premium|utilization|vs_2019|recovery|p_rank|p_top|weight|coverage"
+)
+# Fields already in percent / percentage-point units (82.3 = 82.3%).
+PERCENT_KEY = re.compile(r"percentile|gap|_pct$")
+# Ratios that answers usually express as a change ("0.945 of 2019" -> "5.5% below 2019").
+RATIO_KEY = re.compile(r"vs_2019|recovery|utilization")
+
+
+@dataclass(frozen=True)
+class Evidence:
+    value: float
+    kind: str  # "fraction" | "percent" | "plain"
+    ratio: bool = False
 
 
 @dataclass
@@ -35,54 +55,66 @@ class GroundingReport:
         return {"checked": self.checked, "unverified": self.unverified, "grounded_ratio": round(self.grounded_ratio, 3)}
 
 
-def _collect(node: Any, out: list[float]) -> None:
+def _collect(node: Any, out: list[Evidence], path: str = "") -> None:
+    """Walk a tool payload, remembering which field each number came from (that decides its unit)."""
     if isinstance(node, bool):
         return
     if isinstance(node, (int, float)):
-        out.append(float(node))
+        kind = "fraction" if FRACTION_KEY.search(path) else "percent" if PERCENT_KEY.search(path) else "plain"
+        out.append(Evidence(float(node), kind, bool(RATIO_KEY.search(path))))
     elif isinstance(node, dict):
-        for v in node.values():
-            _collect(v, out)
+        for k, v in node.items():
+            _collect(v, out, f"{path}.{k}".lower() if path else str(k).lower())
     elif isinstance(node, list):
         for v in node:
-            _collect(v, out)
+            _collect(v, out, path)
     elif isinstance(node, str):
-        for m in NUMBER.finditer(node):  # numbers embedded in tool text (notes, summaries)
+        for m in NUMBER.finditer(node):  # numbers written inside tool text (notes, summaries, assumptions)
             value = float(m.group("num").replace(",", "") + (m.group("dec") or ""))
+            if m.group("sign") in ("-", "\u2212"):
+                value = -value
             unit = (m.group("unit") or "").lower()
-            # Store in base units so "12.5 million" in a note matches "12.5M" in the answer.
-            out.append(value * TEXT_SCALE.get(unit, 1.0))
+            if unit in ("%", "percent", "pp"):
+                out.append(Evidence(value, "percent"))
+            else:  # "12.5 million" stored in base units so it matches "12.5M"
+                out.append(Evidence(value * TEXT_SCALE.get(unit, 1.0), "plain"))
 
 
-def evidence_pool(tool_payloads: list[dict[str, Any]], extra_text: str = "") -> list[float]:
-    raw: list[float] = []
+def evidence_pool(tool_payloads: list[Any]) -> list[Evidence]:
+    pool: list[Evidence] = []
     for payload in tool_payloads:
-        _collect(payload, raw)
-    _collect(extra_text, raw)
-    return sorted({abs(v) for v in raw})
-
-
-def _candidates(pool: list[float], unit: str) -> list[float]:
-    """Scale tool values into the unit the answer displays (only that unit: no blanket x100)."""
-    if unit in ("%", "percent", "pp"):
-        # fractions shown as percent (0.292 -> 29.2%), values already in percent/pp, ratios as change (1.12 -> 12%)
-        return pool + [v * 100 for v in pool] + [abs(v - 1) * 100 for v in pool if 0 < v < 5]
-    if unit in ("m", "million"):
-        return [v / 1e6 for v in pool]
-    if unit in ("k", "thousand"):
-        return [v / 1e3 for v in pool]
-    if unit in ("b", "billion"):
-        return [v / 1e9 for v in pool]
+        _collect(payload, pool)
     return pool
 
 
-def _matches(value: float, decimals: int, candidates: list[float]) -> bool:
+def _candidates(pool: list[Evidence], unit: str) -> list[float]:
+    """Tool values expressed in the unit the answer displays. Only unit-consistent conversions."""
+    if unit in ("%", "percent", "pp"):
+        out = [e.value * 100 for e in pool if e.kind == "fraction"]
+        out += [e.value for e in pool if e.kind == "percent"]
+        out += [(e.value - 1) * 100 for e in pool if e.ratio]
+        return out
+    scale = {"m": 1e6, "million": 1e6, "k": 1e3, "thousand": 1e3, "b": 1e9, "billion": 1e9}.get(unit)
+    if scale:
+        return [e.value / scale for e in pool if e.kind == "plain"]
+    return [e.value for e in pool]
+
+
+def _matches(value: float, signed: bool, decimals: int, candidates: list[float]) -> bool:
     tol = max(0.5 * 10 ** (-decimals), abs(value) * 0.005)  # display rounding, plus 0.5% slack
-    return any(abs(value - c) <= tol for c in candidates)
+    if signed:  # "+5%" must match +0.05, not -0.05
+        return any(abs(value - c) <= tol for c in candidates)
+    # No explicit sign: direction is usually in words ("5% below 2019"), so compare magnitudes.
+    return any(abs(abs(value) - abs(c)) <= tol for c in candidates)
 
 
-def check_grounding(answer: str, tool_payloads: list[dict[str, Any]], user_text: str = "") -> GroundingReport:
-    pool = evidence_pool(tool_payloads, user_text)
+def check_grounding(answer: str, tool_payloads: list[Any]) -> GroundingReport:
+    """Every number in `answer` must match a value from the tool results the model was shown.
+
+    This is a set-membership check: it catches invented or misread figures, but a number that
+    happens to equal some other value in the evidence will pass. It is a safety net, not a proof.
+    """
+    pool = evidence_pool(tool_payloads)
     report = GroundingReport()
     for m in NUMBER.finditer(answer):
         digits = m.group("num").replace(",", "")
@@ -92,9 +124,10 @@ def check_grounding(answer: str, tool_payloads: list[dict[str, Any]], user_text:
         is_year = "," not in m.group("num") and 1900 <= value <= 2100
         if not unit and not dec and (is_year or value <= 10):
             continue  # years, small counts/ordinals ("top 3", "4 pillars")
-        # Compared in the displayed scale: "2.7M" matches 2665790 because the pool holds v/1e6;
-        # "29.2%" matches 0.292 because the pool holds v*100.
+        sign = m.group("sign")
+        if sign in ("-", "\u2212"):
+            value = -value
         report.checked += 1
-        if not _matches(value, len(dec) - 1 if dec else 0, _candidates(pool, unit)):
+        if not _matches(value, sign is not None, len(dec) - 1 if dec else 0, _candidates(pool, unit)):
             report.unverified.append(m.group(0).strip())
     return report

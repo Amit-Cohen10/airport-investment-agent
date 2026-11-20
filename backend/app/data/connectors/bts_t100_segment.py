@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import zipfile
 from pathlib import Path
 
@@ -61,8 +62,11 @@ def _form_state(html: str) -> dict[str, str]:
 
 def download_year(client: httpx.Client, raw_dir: Path, year: int) -> Path:
     dest = raw_dir / "t100_segment" / f"t100_segment_{year}.zip"
-    if dest.exists() and dest.stat().st_size > 0:
+    # Closed years never change; the current year gains a month of data roughly monthly.
+    stale = year >= time.gmtime().tm_year and dest.exists() and time.time() - dest.stat().st_mtime > 7 * 86400
+    if dest.exists() and dest.stat().st_size > 0 and not stale:
         return dest
+    dest.unlink(missing_ok=True)
     form = request_with_retry(client, "GET", FORM_URL).text
     payload = {
         **_form_state(form),

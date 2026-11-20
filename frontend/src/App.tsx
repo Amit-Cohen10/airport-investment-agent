@@ -15,7 +15,7 @@ export default function App() {
   const [autoSpeak, setAutoSpeak] = useState(false)
   const [health, setHealth] = useState<Health | null>(null)
   const [healthError, setHealthError] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const endRef = useRef<HTMLDivElement>(null)
   const offlineOnly = health?.llm?.providers.every((p) => p.startsWith('offline')) ?? false
 
   const ask = async (text: string) => {
@@ -31,7 +31,8 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+    // scrollIntoView works whichever element scrolls (the chat pane on desktop, the page on mobile).
+    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
   }, [messages])
 
   // Evidence panel shows the selected answer, or the latest one.
@@ -94,7 +95,7 @@ export default function App() {
 
       <main className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         <section className="flex min-h-[88vh] flex-col lg:min-h-0 lg:w-[46%] lg:flex-none">
-          <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6 scroll-thin">
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6 scroll-thin" aria-live="polite" aria-busy={busy}>
             {messages.length === 0 ? (
               <EmptyState onPick={(q) => void ask(q)} />
             ) : (
@@ -122,9 +123,10 @@ export default function App() {
                 ))}
               </div>
             )}
+            <div ref={endRef} />
           </div>
 
-          <form onSubmit={submit} className="border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
+          <form onSubmit={submit} className="sticky bottom-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 lg:static">
             {speech.error && <p className="mb-1 text-xs text-amber-700">{speech.error}</p>}
             <div className="flex items-end gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100">
               <textarea

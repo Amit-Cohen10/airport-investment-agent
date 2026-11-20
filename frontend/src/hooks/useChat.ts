@@ -19,6 +19,7 @@ export interface ChatMessage {
   steps?: ProgressStep[]
   status?: string
   error?: string
+  notice?: string
   pending?: boolean
 }
 
@@ -57,6 +58,13 @@ export function useChat() {
         (event) => {
           switch (event.type) {
             case 'session':
+              if (sessionRef.current && !event.resumed) {
+                // The server no longer had this conversation (expired or restarted).
+                patch(assistantId, (m) => ({
+                  ...m,
+                  notice: 'The earlier conversation expired on the server, so this answer starts without its context.',
+                }))
+              }
               sessionRef.current = event.session_id
               break
             case 'status':

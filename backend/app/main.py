@@ -40,7 +40,8 @@ def create_app(settings: Settings | None = None, llm: LLMClient | None = None) -
         repo = Repository(settings.snapshot_dir)
         live = LiveAviationClient(settings.live_api_timeout_s, settings.user_agent)
         service = InsightService.from_paths(repo, settings.scoring_config_path, settings.airport_notes_path, live)
-        _ = service.default_scores  # warm caches (features + national scores) before the first request
+        # Warm every cache before the first request (tools run in threads; avoid duplicate cold work).
+        _ = service.default_scores, service.congestion_scores, service.directory
         app.state.service = service
         app.state.llm_error = None
         app.state.runtime = None

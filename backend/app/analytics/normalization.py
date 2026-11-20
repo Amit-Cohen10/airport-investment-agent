@@ -25,8 +25,8 @@ def weighted_mean(values: Mapping[str, float | None], weights: Mapping[str, floa
     """Weighted mean over the components that have data.
 
     Missing components are dropped and the remaining weights re-normalized. Returns
-    (score, coverage) where coverage is the share of total weight that had data; a low
-    coverage lowers the confidence grade instead of silently biasing the score.
+    (score, coverage) where coverage is the share of total weight that had data.
+    Callers that must not reward gaps impute missing values first (see expansion_score).
     """
     total_weight = sum(weights.values())
     used = {k: w for k, w in weights.items() if _present(values.get(k))}

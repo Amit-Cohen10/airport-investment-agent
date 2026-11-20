@@ -53,6 +53,7 @@ def test_traffic_features_load_factor_and_demand_supply_gap():
             "passengers": [80.0] * 12 + [90.0] * 12,
             "seats": [100.0] * 24,
             "departures": 1.0,
+            "dom_departures": 1.0,
             "freight_lbs": 0.0,
             "intl_departures": 0.0,
             "intl_passengers": 0.0,
@@ -194,9 +195,20 @@ def test_trim_history_keeps_whole_recent_turns():
     assert tool_ids == call_ids  # no orphaned tool results
 
 
-def test_tool_message_truncates_large_payloads():
-    msg = tool_message("c1", "t", {"blob": "y" * 50_000})
-    assert len(msg["content"]) < 13_000 and msg["content"].endswith('"(truncated)"')
+def test_tool_message_truncates_structurally_and_keeps_caveats():
+    payload = {
+        "ok": True,
+        "summary": "s",
+        "data": {"rows": [{"x": "y" * 500} for _ in range(100)]},
+        "caveats": ["important caveat"],
+    }
+    msg = tool_message("c1", "t", payload)
+    parsed = json.loads(msg["content"])  # still valid JSON
+    assert len(msg["content"]) <= 12_000
+    assert parsed["caveats"] == ["important caveat"] and parsed["summary"] == "s"
+    assert len(parsed["data"]["rows"]) < 100 and "truncated" in parsed
+    huge = tool_message("c2", "t", {"ok": True, "summary": "s", "data": {"blob": "z" * 50_000}})
+    assert json.loads(huge["content"])["truncated"] == "data omitted"
 
 
 def test_system_prompt_includes_periods_and_stale_warning():
@@ -294,3 +306,101 @@ async def test_offline_planner_routes_intents_and_follow_ups():
 async def test_resilient_llm_requires_clients():
     with pytest.raises(NoLLMConfiguredError):
         ResilientLLM([])
+
+
+# --- Regressions from the second review round ---------------------------------------------------
+def test_missing_metric_is_neutral_not_rewarded():
+    metric = {"weight": 0.5, "higher_is_better": True, "label": "m"}
+    cfg = ScoreConfig(
+        pillars={"p": {"weight": 1.0, "label": "P", "metrics": {"scale": metric, "fare": metric}}},
+        min_enplanements=0,
+        high_min_coverage=0.95,
+        medium_min_coverage=0.7,
+    )
+    feats = pd.DataFrame(
+        {"enplanements_latest": 1, "scale": [10.0, 9.0, 1.0], "fare": [np.nan, 9.0, 1.0]}, index=["GAP", "FULL", "LOW"]
+    )
+    t = score_universe(feats, cfg).table
+    # GAP has the best scale but no fare: its fare counts as the median (50), not as its scale score.
+    assert t.at["GAP", "score"] == pytest.approx((100 + 50) / 2)
+    assert t.at["GAP", "confidence"] == "low"
+
+
+def test_grounding_signs_and_units():
+    from app.agent.guardrails import check_grounding
+
+    payload = [{"data": {"passenger_growth_ttm": -0.05, "score": 66.2, "percentile": 82.3}}]
+    assert check_grounding("Passengers fell 5% (-5.0%).", payload).unverified == []
+    assert check_grounding("Passengers grew +5%.", payload).unverified == ["+5%"]  # wrong sign
+    assert check_grounding("Score 66.2, the 82nd percentile.", payload).unverified == []
+    assert check_grounding("Score 66.2%.", payload).unverified == ["66.2%"]  # a score is not a percent
+
+
+def test_resolution_never_guesses_unknown_codes(service):
+    assert service.directory.resolve("XQZ").codes == []
+    from app.services.insights import AnalysisError
+
+    with pytest.raises(AnalysisError):
+        service.airport_profile("XQZ")
+
+
+def test_faa_lid_codes_are_bridged_to_iata(service):
+    # FAA files use GPI (Glacier Park) and UNV (State College); BTS/OurAirports use FCA and SCE.
+    assert {"FCA", "SCE"} <= set(service.features.index)
+    assert "GPI" not in service.features.index
+    assert service.features.at["FCA", "passengers_ttm"] > 0
+
+
+def test_territories_have_reference_data(service):
+    assert service.features.at["SJU", "runways"] >= 1 and service.features.at["SJU", "state"] == "PR"
+
+
+def test_unreliable_ontime_samples_are_dropped(service):
+    f = service.features
+    low = f[f["ontime_coverage"] < 0.2]
+    assert len(low) and low["taxi_out_avg_min"].isna().all()
+
+
+def test_trim_history_is_linear_on_long_sessions():
+    history = [m for i in range(2000) for m in _turn(i, 100)]
+    started = time.perf_counter()
+    trimmed = trim_history(history, 60_000)
+    assert time.perf_counter() - started < 0.5 and trimmed[0]["role"] == "user"
+
+
+def test_session_store_caps_turns():
+    from app.agent.session_store import MAX_TURNS
+
+    store = InMemorySessionStore()
+    s = store.get_or_create("s")
+    s.messages = [m for i in range(MAX_TURNS + 10) for m in _turn(i)]
+    store.save(s)
+    assert sum(m["role"] == "user" for m in s.messages) == MAX_TURNS
+
+
+async def test_turn_sticks_to_fallback_provider():
+    from app.llm.base import AssistantTurn, RetryableLLMError
+
+    calls = []
+
+    class Primary:
+        name, model = "primary", "x"
+
+        async def chat(self, *a, **k):
+            calls.append("primary")
+            raise RetryableLLMError("429")
+
+    class Backup:
+        name, model = "backup", "y"
+
+        async def chat(self, *a, **k):
+            calls.append("backup")
+            return AssistantTurn(content="ok", tool_calls=[], message={}, provider="backup")
+
+    chain = ResilientLLM([Primary(), Backup()], attempts_per_provider=1, base_delay_s=0)
+    turn = chain.for_turn()
+    await turn.chat([])
+    await turn.chat([])
+    assert calls == ["primary", "backup", "backup"]  # second step does not retry the primary
+    await chain.for_turn().chat([])
+    assert calls[-2:] == ["primary", "backup"]  # a new turn tries the primary again
