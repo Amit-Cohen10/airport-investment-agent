@@ -16,6 +16,13 @@ from app.agent.tools.registry import Tool
 from app.domain.models import BarChartBlock, BarSeries, Kpi, KpiBlock, TableBlock, ToolResult
 from app.services.insights import AnalysisError, InsightService
 
+CAUSE_LABELS = {
+    "nas": "NAS (system/capacity)",
+    "weather": "Extreme weather",
+    "carrier": "Airline",
+    "late_aircraft": "Late aircraft",
+}
+
 AirportCode = Annotated[str, Field(description="US airport IATA/FAA code, e.g. 'SFO'. Resolve names first.")]
 
 
@@ -389,7 +396,7 @@ def unmet_handler(args: AirportArgs, svc: InsightService) -> ToolResult:
         ),
         BarChartBlock(
             title="Arrival delay minutes by cause",
-            categories=[k.replace("_", " ").title() for k in shares],
+            categories=[CAUSE_LABELS.get(k, k) for k in shares],
             series=[BarSeries(name="Share", values=[round((v or 0) * 100, 1) for v in shares.values()])],
             unit="%",
         ),

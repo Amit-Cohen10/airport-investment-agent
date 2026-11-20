@@ -54,7 +54,7 @@ export default function App() {
         </div>
         <div className="min-w-0">
           <h1 className="text-[15px] font-semibold leading-tight text-slate-900">Airport Investment Intelligence</h1>
-          <p className="truncate text-xs text-slate-500">
+          <p className="hidden truncate text-xs text-slate-500 sm:block">
             Terminal-expansion screening on public FAA & BTS data · deterministic scoring, AI explanation
           </p>
         </div>
@@ -72,10 +72,10 @@ export default function App() {
           ) : (
             health?.llm && (
               <span
-                className={`rounded-full px-2.5 py-1 text-xs ${offlineOnly ? 'bg-amber-50 text-amber-700' : 'bg-teal-50 text-teal-700'}`}
+                className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs ${offlineOnly ? 'bg-amber-50 text-amber-700' : 'bg-teal-50 text-teal-700'}`}
                 title={`LLM chain: ${health.llm.providers.join(' -> ')}`}
               >
-                {offlineOnly ? 'Offline mode (no LLM key)' : health.llm.providers[0]}
+                {offlineOnly ? (<><span className="hidden sm:inline">Offline mode (no LLM key)</span><span className="sm:hidden">Offline</span></>) : health.llm.providers[0].split(':')[0]}
               </span>
             )
           )}
@@ -92,8 +92,8 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <section className="flex min-h-0 flex-1 flex-col lg:w-[46%] lg:flex-none">
+      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+        <section className="flex min-h-[88vh] flex-col lg:min-h-0 lg:w-[46%] lg:flex-none">
           <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6 scroll-thin">
             {messages.length === 0 ? (
               <EmptyState onPick={(q) => void ask(q)} />
@@ -181,7 +181,7 @@ export default function App() {
           </form>
         </section>
 
-        <aside className="min-h-[50vh] border-t border-slate-200 bg-slate-50 lg:min-h-0 lg:flex-1 lg:border-l lg:border-t-0">
+        <aside className="min-h-[70vh] border-t border-slate-200 bg-slate-50 lg:min-h-0 lg:flex-1 lg:border-l lg:border-t-0">
           <EvidencePanel answer={active?.answer ?? null} />
         </aside>
       </main>
