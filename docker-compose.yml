@@ -1,0 +1,19 @@
+# One command:  docker compose up --build   ->  http://localhost:8000
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: backend/.env
+        required: false   # without keys the app runs in offline mode (deterministic planner)
+    restart: unless-stopped
+
+  # Optional: refresh the data snapshot from the public sources (~10 min, downloads ~400 MB).
+  #   docker compose --profile ingest run --rm ingest
+  ingest:
+    build: .
+    profiles: ["ingest"]
+    command: ["uv", "run", "--no-dev", "python", "-m", "app.data.ingest"]
+    volumes:
+      - ./backend/data:/app/data
