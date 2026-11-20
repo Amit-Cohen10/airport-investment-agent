@@ -26,6 +26,7 @@ from app.data.connectors.live import LiveAviationClient
 from app.data.repository import Repository
 from app.llm.base import LLMClient
 from app.llm.factory import NoLLMConfiguredError, build_llm
+from app.llm.offline import OfflinePlanner
 from app.services.insights import InsightService
 
 log = logging.getLogger(__name__)
@@ -44,7 +45,8 @@ def create_app(settings: Settings | None = None, llm: LLMClient | None = None) -
         app.state.llm_error = None
         app.state.runtime = None
         try:
-            model = llm or build_llm(settings)
+            offline = OfflinePlanner(service.directory.find_in_text) if settings.offline_fallback else None
+            model = llm or build_llm(settings, fallback=offline)
             app.state.runtime = AgentRuntime(
                 model,
                 ToolRegistry(service, build_tools()),

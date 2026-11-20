@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-5-5"
     llm_temperature: float = 0.1
+    # Deterministic keyword planner used when every LLM provider fails (graceful degradation).
+    offline_fallback: bool = True
     llm_timeout_s: float = 60.0
 
     # --- Agent --------------------------------------------------------------

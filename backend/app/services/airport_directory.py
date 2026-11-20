@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import difflib
 import math
+import re
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -114,6 +115,7 @@ ALIASES: dict[str, list[str]] = {
     "MIAMI": ["MIA", "FLL"],
 }
 METRO_RADIUS_MI = 60
+CITY_STOPWORDS = {"MOBILE"}  # city names that are also common English words
 
 
 @dataclass
@@ -207,6 +209,34 @@ class AirportDirectory:
                 nearby.append(code)
         res.alternatives = list(dict.fromkeys(res.alternatives + nearby))
         return res
+
+    def find_in_text(self, text: str) -> tuple[list[str], str | None]:
+        """Airports and region mentioned anywhere in free text (used by the offline planner)."""
+        lower = text.lower()
+        region = None
+        names = sorted(list(REGIONS) + list(REGION_ALIASES) + list(STATE_NAMES), key=len, reverse=True)
+        for name in names:
+            if re.search(rf"\b{re.escape(name)}\b", lower):
+                region = name
+                break
+        hits: list[tuple[int, str]] = []
+        for alias, codes in ALIASES.items():
+            flags = 0 if len(alias) <= 3 else re.IGNORECASE  # "LA" only as a capitalized token
+            for m in re.finditer(rf"(?<![\w.]){re.escape(alias)}(?![\w])", text, flags):
+                hits += [(m.start(), c) for c in codes[:1]]
+        for m in re.finditer(r"\b[A-Z]{3}\b", text):
+            if m.group(0) in self.df.index:
+                hits.append((m.start(), m.group(0)))
+        peers = self.df[self.df["enplanements_latest"] >= 100_000]
+        for code, city in peers["city_u"].items():
+            if city and len(city) > 3 and city not in CITY_STOPWORDS:
+                m = re.search(rf"\b{re.escape(city.lower())}\b", lower)
+                if m:
+                    hits.append((m.start(), code))
+        codes = list(dict.fromkeys(c for _, c in sorted(hits)))
+        if region and region in ("washington state", "new york state"):
+            region = None if codes else region
+        return codes, region
 
     def describe(self, code: str) -> dict:
         row = self.df.loc[code]

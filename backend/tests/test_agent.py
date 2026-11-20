@@ -157,3 +157,25 @@ class TestFailover:
 
 async def _noop(_):
     return None
+
+
+class TestOfflinePlanner:
+    async def test_offline_mode_answers_brief_questions_with_tools(self, service):
+        from app.llm.offline import OfflinePlanner
+
+        runtime = AgentRuntime(
+            OfflinePlanner(service.directory.find_in_text),
+            ToolRegistry(service, build_tools()),
+            InMemorySessionStore(),
+        )
+        expected = {
+            "Which airports in New England are strong candidates for terminal expansion?": "rank_expansion_candidates",
+            "Compare LA and Santa Ana airport congestion levels.": "compare_congestion",
+            "What is the percentage of long haul flights out of Anchorage airport?": "analyze_route_mix",
+            "What is the unmet flight demand in SFO airport and why?": "estimate_unmet_demand",
+        }
+        for question, tool in expected.items():
+            reply = await runtime.run(None, question, _noop)
+            assert [e.tool for e in reply.evidence] == [tool], question
+            assert "Offline mode" in reply.answer
+            assert reply.grounding["unverified"] == []

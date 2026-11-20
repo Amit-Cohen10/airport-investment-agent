@@ -63,7 +63,8 @@ class ResilientLLM:
         raise LLMError(f"All LLM providers failed. Last error: {last}")
 
 
-def build_llm(settings: Settings) -> ResilientLLM:
+def build_llm(settings: Settings, fallback: LLMClient | None = None) -> ResilientLLM:
+    """Provider chain from settings; `fallback` (the offline planner) is appended last."""
     clients: list[LLMClient] = []
     common = {"temperature": settings.llm_temperature, "timeout_s": settings.llm_timeout_s}
     for provider in settings.llm_providers:
@@ -77,4 +78,6 @@ def build_llm(settings: Settings) -> ResilientLLM:
             )
         elif provider == "anthropic" and settings.anthropic_api_key:
             clients.append(AnthropicClient(settings.anthropic_api_key, settings.anthropic_model, **common))
+    if fallback is not None:
+        clients.append(fallback)
     return ResilientLLM(clients)

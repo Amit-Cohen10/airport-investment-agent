@@ -91,7 +91,7 @@ def rank_handler(args: RankArgs, svc: InsightService) -> ToolResult:
             raise AnalysisError(
                 f"Unknown region '{args.region}'. Use a US state, or e.g. New England, Midwest, West Coast."
             )
-        codes, label = svc.directory.airports_in_states(region[1]), f"{args.region} ({', '.join(region[1])})"
+        codes, label = svc.directory.airports_in_states(region[1]), f"{args.region.title()} ({', '.join(region[1])})"
     else:
         codes, label = list(svc.default_scores.table.index), "all US peer airports"
     result = svc.rank_expansion(codes, label, args.overrides(), args.top_n)
