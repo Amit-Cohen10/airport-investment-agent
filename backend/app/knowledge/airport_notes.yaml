@@ -1,0 +1,103 @@
+# Curated structural context per airport.
+#
+# These are NOT computed from data. They are hand-curated facts (with sources) about physical,
+# regulatory, or market constraints that a pure traffic dataset cannot see, e.g. a legal
+# passenger cap or runway geometry. The agent always labels them as "curated context".
+# Each note has: kind (constraint | context), text, source, source_url, and optional
+# structured fields used by deterministic code (e.g. annual_passenger_cap).
+#
+# Last reviewed: 2026-11-20. Verify before any investment decision.
+
+SFO:
+  - kind: constraint
+    topic: runway geometry
+    text: >-
+      SFO's two pairs of parallel runways (28L/28R, 1L/1R) are only ~750 ft apart, too close
+      for independent parallel approaches under FAA/ICAO standards. In low ceilings/fog
+      arrivals fall to roughly one runway (~30 per hour vs ~54-60 in good weather), and the
+      FAA meters inbound flights with Ground Delay Programs.
+    source: SFO Airport / FAA Airport Capacity Profile
+    source_url: https://www.faa.gov/sites/faa.gov/files/airports/planning_capacity/profiles/SFO-Airport-Capacity-Profile-2019.pdf
+  - kind: constraint
+    topic: 2026 arrival-procedure change
+    text: >-
+      Trade press (Aviation Week, Apr 2026) reports the FAA deemed SFO's long-used side-by-side
+      arrival procedure non-compliant, with the maximum arrival rate reported falling from 54 to
+      36 per hour. Treat as reported, not officially confirmed; the live FAA arrival rate
+      (get_live_status) is the best real-time check.
+    source: Aviation Week (via megaproject.com), Apr 2026
+    source_url: https://www.megaproject.com/news/airport/faa-prohibits-parallel-arrivals-at-san-francisco-international-airport
+  - kind: context
+    topic: land
+    text: >-
+      SFO is bounded by San Francisco Bay; new runways would require bay fill, which has
+      historically been politically and environmentally infeasible. Capacity gains come from
+      procedures, fleet up-gauging, and terminal/gate efficiency rather than new runways.
+    source: SFO Airport planning history
+    source_url: https://www.flysfo.com/about/sfo-plans-and-projects
+
+SNA:
+  - kind: constraint
+    topic: regulatory passenger cap
+    text: >-
+      John Wayne Airport operates under a County of Orange settlement agreement (amended 2014,
+      through 2030) that caps annual passengers: 12.2 or 12.5 million annual passengers (MAP)
+      for 2026-2030 depending on 2021-2025 traffic thresholds. Growth beyond the cap is legally
+      blocked regardless of demand.
+    source: County of Orange, JWA Settlement Agreement FAQ
+    source_url: https://www.ocair.com/about/administration/settlement-agreement/settlement-agreement-faqs
+    annual_passenger_cap: 12200000  # conservative (lower) figure of the two possible Phase 3 caps
+  - kind: constraint
+    topic: curfew
+    text: >-
+      Noise curfew: no commercial departures after 10 p.m. or arrivals after 11 p.m. (departures
+      resume 7 a.m., 8 a.m. Sundays). The curfew is committed through 2035. Fewer operating hours
+      concentrate traffic into a shorter day.
+    source: County of Orange / JWA
+    source_url: https://www.ocair.com/about/administration/settlement-agreement/settlement-agreement-faqs
+    operating_hours_per_day: 15
+  - kind: constraint
+    topic: runway
+    text: >-
+      A single air-carrier runway (2L/20R, ~5,700 ft). Short runway limits aircraft types
+      and long-haul payload.
+    source: FAA airport data (via OurAirports)
+    source_url: https://ourairports.com/airports/KSNA/
+
+LAX:
+  - kind: context
+    topic: modernization
+    text: >-
+      Los Angeles World Airports is in a multi-year, multi-billion-dollar modernization program
+      (terminal renovations, Automated People Mover, consolidated rental car facility). Some
+      terminal upside is already being captured by the incumbent program.
+    source: Los Angeles World Airports
+    source_url: https://www.flylax.com/lax-modernization
+  - kind: context
+    topic: airfield
+    text: >-
+      Four parallel runways in two complexes (north 6L/24R-6R/24L, south 7L/25R-7R/25L), operating
+      24 hours, though with nighttime noise procedures (over-ocean operations).
+    source: Los Angeles World Airports
+    source_url: https://www.flylax.com/
+
+ANC:
+  - kind: context
+    topic: cargo hub
+    text: >-
+      Ted Stevens Anchorage International ranks #1 in the U.S. and #3 in the world for air cargo
+      (ACI, 2026 release). Its great-circle position between Asia and North America makes it a
+      technical stop for trans-Pacific freighters. Long-haul *flights* are therefore dominated
+      by cargo, while the *passenger* network is mostly intra-Alaska and to the Lower 48.
+    source: Alaska DOT&PF press release (ACI rankings), 2026
+    source_url: https://dot.alaska.gov/aias/assets/PR-ANC-2026%20Rankings-ACI.pdf
+
+BOS:
+  - kind: constraint
+    topic: land
+    text: >-
+      Logan sits on ~2,400 acres largely surrounded by Boston Harbor, so landside/terminal
+      expansion is space-constrained; recent capacity came from the Terminal E expansion
+      (opened 2022) rather than new land.
+    source: Massport
+    source_url: https://www.massport.com/logan-airport/about-logan/

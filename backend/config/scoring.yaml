@@ -1,0 +1,75 @@
+# Scoring configuration. All weights, thresholds, and assumptions live here, not in code.
+# Change a number here and every answer, table, and test follows.
+
+peer_universe:
+  # Airports are scored against a national peer set so that "strong" means strong relative to
+  # comparable US airports, not just relative to the handful in the user's question.
+  min_annual_enplanements: 100000   # roughly: FAA primary commercial-service airports with meaningful scale
+
+expansion_score:
+  description: >-
+    Terminal Expansion Opportunity Score (0-100). How strongly the data supports investing in
+    more terminal (passenger-processing) capacity: is demand growing, is today's capacity full,
+    is the airport straining, and is the revenue base large enough to pay back the investment?
+  pillars:
+    demand_momentum:
+      weight: 0.30
+      label: Demand momentum
+      metrics:
+        enplanement_cagr_3y: {weight: 0.35, higher_is_better: true, label: "Enplanement CAGR CY2022-25"}
+        passenger_growth_ttm: {weight: 0.35, higher_is_better: true, label: "Passenger growth, trailing 12 mo vs prior 12 mo"}
+        recovery_vs_2019: {weight: 0.30, higher_is_better: true, label: "CY2025 enplanements vs CY2019"}
+    capacity_utilization:
+      weight: 0.25
+      label: Capacity utilization
+      metrics:
+        load_factor_ttm: {weight: 0.60, higher_is_better: true, label: "Load factor, trailing 12 mo"}
+        demand_supply_gap: {weight: 0.40, higher_is_better: true, label: "Passenger growth minus seat growth (pp)"}
+    operational_strain:
+      weight: 0.20
+      label: Operational strain
+      metrics:
+        taxi_out_avg_min: {weight: 0.35, higher_is_better: true, label: "Avg taxi-out (min)"}
+        peak_hour_movements: {weight: 0.25, higher_is_better: true, label: "Avg daily peak-hour movements"}
+        dep_delay_rate: {weight: 0.20, higher_is_better: true, label: "Departures delayed 15+ min"}
+        nas_delay_per_arrival_min: {weight: 0.20, higher_is_better: true, label: "NAS (system) delay min per arrival"}
+    revenue_potential:
+      weight: 0.25
+      label: Revenue potential
+      metrics:
+        log_enplanements: {weight: 0.60, higher_is_better: true, label: "Scale (log CY2025 enplanements)"}
+        fare_premium: {weight: 0.40, higher_is_better: true, label: "Fare premium vs distance-adjusted US norm"}
+  confidence:
+    high_min_coverage: 0.90    # share of metric weight with data
+    medium_min_coverage: 0.70
+  sensitivity:
+    samples: 1000
+    concentration: 40          # Dirichlet concentration around the default pillar weights (higher = tighter)
+    seed: 7
+
+congestion_index:
+  description: >-
+    Congestion Index (0-100, percentile vs national peers). How congested the airfield and
+    schedule are today. Higher = more congested.
+  metrics:
+    taxi_out_avg_min: {weight: 0.25, label: "Avg taxi-out (min)"}
+    peak_hour_movements_per_runway: {weight: 0.20, label: "Peak-hour movements per runway"}
+    dep_delay_rate: {weight: 0.15, label: "Departures delayed 15+ min"}
+    arr_delay_rate: {weight: 0.15, label: "Arrivals delayed 15+ min"}
+    nas_delay_per_arrival_min: {weight: 0.15, label: "NAS (system) delay min per arrival"}
+    cancellation_rate: {weight: 0.10, label: "Departure cancellation rate"}
+
+route_mix:
+  # Statute-mile distance bands. Common industry convention; no single official definition exists.
+  short_haul_max_mi: 700
+  long_haul_min_mi: 3000
+  alternative_thresholds_mi: [2000, 3000, 4000]
+
+unmet_demand:
+  # Spill model: demand on a flight is Normal(mu, cv * mu); carried = E[min(demand, seats)].
+  demand_cv: 0.30                    # coefficient of variation of demand; industry spill models use ~0.25-0.40
+  cv_sensitivity: [0.20, 0.30, 0.40]
+  min_load_factor_for_spill: 0.60    # below this, spill is negligible; skip the computation
+  max_load_factor: 0.985             # numerical guard: LF ~100% implies unbounded demand
+  target_load_factor: 0.85           # LF used to convert spilled passengers into "extra flights"
+  constrained_route_lf: 0.85         # routes above this are "capacity constrained"
