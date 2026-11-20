@@ -109,6 +109,7 @@ def summarize_metar(metar: dict[str, Any]) -> dict[str, Any]:
         "flight_category": metar.get("fltCat"),
         "visibility_sm": metar.get("visib"),
         "ceiling_ft": ceiling,
+        "cloud_layers": [{"cover": c.get("cover"), "base_ft": c.get("base")} for c in clouds],
         "wind_kt": metar.get("wspd"),
         "observed": metar.get("reportTime"),
         "raw": metar.get("rawOb"),

@@ -224,7 +224,7 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
 
 ## 8. Quality
 
-- **41 automated tests** (`make test`). No network or API key is needed.
+- **48 automated tests** (`make test`). No network or API key is needed.
   - Analytics math checked against closed-form values
   - Spill-model inversion
   - Rank-stability determinism
@@ -234,7 +234,14 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
   - SSE API
   - Integration tests on the real snapshot answering the four brief questions
   - Offline mode
-- **Golden-question eval** (`make eval`) against the real LLM: tool choice, grounding, required content. Writes `evals/report.md`.
+- **Golden-question eval** (`make eval`): 11 turns across 5 multi-turn conversations, run against the real LLM (Gemini `gemini-3.5-flash-lite`). Each turn checks tool choice, numeric grounding and required content. Results are in `evals/report.md`.
+  - **Latest result: 10/11 pass, at 2-7 s per answer.**
+  - The remaining flag is a false positive: weights were written as "30/25/20/25" without a % sign.
+  - Iterating on the eval surfaced real issues, which were then fixed:
+    - The grounding check ignored earlier turns and tool arguments.
+    - Follow-ups re-derived numbers instead of re-running the tool (now a prompt rule).
+    - The guardrail caught a genuine model misread: "NAS delay 11.9 min" when the data says 11.19.
+- **Independent code review pass:** findings fixed with regression tests. They included failover on malformed tool arguments from another provider, a renamed airport code (PBI to DJT) splitting history across sources, and SSE CRLF chunk splitting.
 - **Ingest validation contracts:** required columns, row counts, non-negative values, anchor airports. A failed table keeps its last good snapshot.
 
 ## 9. With more time

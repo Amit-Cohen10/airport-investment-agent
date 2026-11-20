@@ -168,7 +168,9 @@ class AgentRuntime:
 
         # Numbers may legitimately come from this turn's tools or from earlier turns' tool results.
         earlier = [_safe_json(m["content"]) for m in session.messages if m.get("role") == "tool"]
-        payloads = [r.for_llm() for r in evidence] + [p for p in earlier if isinstance(p, dict)]
+        # Tool arguments count too (e.g. the weight the model itself chose for a what-if).
+        arguments = [s["arguments"] for s in trace.steps if s["type"] == "tool" and isinstance(s["arguments"], dict)]
+        payloads = [r.for_llm() for r in evidence] + [p for p in earlier if isinstance(p, dict)] + arguments
         grounding = check_grounding(answer, payloads, user_text)
         self._update_session(session, new_messages, evidence)
         return AgentReply(session.id, answer, evidence, grounding.to_dict(), trace.to_dict())

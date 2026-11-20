@@ -251,3 +251,9 @@ class TestReviewRegressions:
         first = await runtime.run(None, "ANC long haul?", _noop)
         second = await runtime.run(first.session_id, "and at 4000 miles?", _noop)
         assert second.grounding["unverified"] == []
+
+
+def test_grounding_understands_units_written_in_tool_text():
+    payload = [{"notes": ["cap of 12.2 or 12.5 million annual passengers; still 5% below 2019"]}]
+    report = check_grounding("The cap is 12.5M passengers and traffic is 5% below 2019.", payload)
+    assert report.unverified == []

@@ -19,6 +19,9 @@ NUMBER = re.compile(
 )
 
 
+TEXT_SCALE = {"k": 1e3, "thousand": 1e3, "m": 1e6, "million": 1e6, "b": 1e9, "billion": 1e9, "%": 0.01, "percent": 0.01}
+
+
 @dataclass
 class GroundingReport:
     checked: int = 0
@@ -45,7 +48,10 @@ def _collect(node: Any, out: list[float]) -> None:
             _collect(v, out)
     elif isinstance(node, str):
         for m in NUMBER.finditer(node):  # numbers embedded in tool text (notes, summaries)
-            out.append(float(m.group("num").replace(",", "") + (m.group("dec") or "")))
+            value = float(m.group("num").replace(",", "") + (m.group("dec") or ""))
+            unit = (m.group("unit") or "").lower()
+            # Store in base units so "12.5 million" in a note matches "12.5M" in the answer.
+            out.append(value * TEXT_SCALE.get(unit, 1.0))
 
 
 def evidence_pool(tool_payloads: list[dict[str, Any]], extra_text: str = "") -> list[float]:

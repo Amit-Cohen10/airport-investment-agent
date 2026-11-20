@@ -36,6 +36,8 @@ def fmt_metric(metric: str, v: Any) -> str:
         return f"{v:+.1f} pp"
     if metric == "log_enplanements":
         return f"{compact(10**v)} enpl."
+    if metric == "hours":
+        return f"{v:.1f}"
     if metric.endswith("_min"):
         return f"{v:.1f} min"
     if metric.startswith("peak_hour"):
