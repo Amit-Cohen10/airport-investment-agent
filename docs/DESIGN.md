@@ -127,7 +127,7 @@ Every number the agent shows carries its **source and period**.
    - The obvious alternative, re-normalizing weights over the metrics that exist, is a trap. A review caught it ranking San Juan #1 nationally: SJU has no fare data, so its revenue pillar became "scale only".
    - **Coverage** (the share of total weight backed by real data) sets the confidence grade: High >= 95%, Medium >= 70%, otherwise Low. Any material gap therefore caps an airport at Medium.
    - Examples: SJU (no fare data) and HVN (no on-time data) are Medium.
-5. **Rank stability:** 1,000 seeded Dirichlet re-weightings of the pillars around the defaults. The output reads like "BOS ranks #1 in 63% of scenarios". This shows how sensitive the ranking is to subjective weights.
+5. **Rank stability:** 1,000 seeded Dirichlet re-weightings of the pillars around the defaults. The output reads like "BOS ranks #1 in 64% of scenarios". This shows how sensitive the ranking is to subjective weights.
 6. **What-if:** analysts can override pillar weights in chat ("weight growth twice as much").
 7. **Constraint flags** (legal caps, curfews, land, runway geometry) are shown **next to** the score, never folded into it. The analyst sees the trade-off instead of a hidden penalty.
 
