@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # --- LLM ----------------------------------------------------------------
     # Ordered provider chain: the first provider with a configured key is primary,
     # the rest are fallbacks on rate limits / outages.
-    llm_providers: list[LLMProvider] = Field(default=["gemini", "groq", "anthropic"])
+    llm_providers: list[LLMProvider] = Field(default=["anthropic", "gemini", "groq"])
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.5-flash-lite"
     groq_api_key: str | None = None

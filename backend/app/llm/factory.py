@@ -1,7 +1,9 @@
 """Builds the provider chain and adds resilience: retry with backoff, then fail over.
 
-primary (e.g. Gemini free tier) --429/5xx/timeout--> retry with backoff
-                                --still failing---> next provider (e.g. Groq, Claude)
+primary (e.g. Claude) --429/5xx/timeout--> retry with backoff
+                      --still failing---> next provider (e.g. Gemini free tier, Groq)
+
+Providers without a key are skipped, so with only a free Gemini key the chain is Gemini -> offline.
 
 A provider that was exhausted is skipped for a short cooldown, so while a free-tier quota is used up
 each new turn goes straight to the fallback instead of paying the retry delay again.

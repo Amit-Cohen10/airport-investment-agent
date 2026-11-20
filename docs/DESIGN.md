@@ -60,7 +60,7 @@ flowchart LR
   Live --> SVC
   SVC --> TOOLS[Tool registry<br/>Pydantic-validated]
   TOOLS <--> RT[Agent runtime loop]
-  RT <--> LLM[LLM chain<br/>Gemini -> (Groq if keyed) -> Claude -> offline]
+  RT <--> LLM[LLM chain<br/>Claude -> Gemini -> (Groq if keyed) -> offline]
   RT --> API[FastAPI SSE] --> UI[React chat + evidence panel]
 ```
 
@@ -249,7 +249,7 @@ Sessions keep the history, so follow-ups like "what about Bangor?" or "weight gr
 - Only one turn runs per session at a time.
 
 **LLM provider chain:**
-- Gemini free tier (`gemini-3.5-flash-lite`) first. Groq (`gpt-oss-120b`) comes next only if a Groq key is set. Then Claude, then the offline planner (`LLM_PROVIDERS` sets the order).
+- Claude first when its key is set, then the Gemini free tier (`gemini-3.5-flash-lite`), then Groq (`gpt-oss-120b`) if keyed, then the offline planner. `LLM_PROVIDERS` sets the order, and providers without a key are skipped, so a free Gemini key alone is enough.
 - The Claude model is configurable. The default is `claude-opus-5-5`; the evaluation below ran with `claude-sonnet-5-5`, set in `.env`.
 - One OpenAI-compatible adapter plus an Anthropic adapter, with retry/backoff on 429/5xx and automatic failover. A provider that was exhausted is skipped for 60 seconds (for example while a free-tier quota is used up).
 - **Offline planner (last in the chain):** if every LLM is unavailable, a keyword intent router runs the same tools and assembles the answer from tool summaries.
@@ -268,7 +268,7 @@ Sessions keep the history, so follow-ups like "what about Bangor?" or "weight gr
 | Weights | Expert defaults + rank-stability analysis + what-if overrides | "Learned" weights | No ground truth of past investment returns to learn from; transparency beats false precision |
 | Constraints | Shown as flags beside the score | Penalty inside the score | Analysts must see *why*; a hidden penalty would be untraceable |
 | Terminal capacity | Proxied by load factor, peak-hour movements, taxi-out + a bottleneck check | Gates / square footage from master plans | Not available through a standardized national API; integrating per-airport plans is the next diligence step. Stated as the main limitation |
-| LLM | Free tier with failover + offline mode | Single paid model | Meets the brief's free-tier suggestion; resilient to rate limits during demos |
+| LLM | Claude when keyed, free Gemini as automatic fallback, offline last | A single model | Most reliable answers for the demo, yet anyone with only a free Gemini key (or no key) still gets a working app; resilient to rate limits and outages |
 | Number safety | Tool-only numbers + grounding check + UI built from tool data | Trust the LLM | Hallucinated statistics are unacceptable in investment analysis |
 | Missing data | Neutral (median) imputation + confidence from coverage | Re-normalize over available metrics | Re-normalizing rewards gaps (it put SJU at #1); neutral imputation is conservative and the gap stays visible |
 | Curated notes | Small cited YAML | RAG over documents | Five airports' constraints don't justify a vector store; the notes are auditable |
@@ -334,7 +334,7 @@ Notes on the runs:
   - **Checker gaps**, each fixed with a regression test: a number that existed only in a field name (`rank_range_90`, now an explicit `rank_range_interval_pct`), explanatory sentences read as confidence claims, a bolded confidence line, a refusal list that missed "will not", and follow-ups that silently dropped the what-if scenario.
   - **Real model slips the guardrail is meant to catch:** derived numbers ("less than 1.2 million passengers of headroom", "over 120,000 spilled passengers each", the METAR "45"), a truncation ("~9" for 9.7), and a confidence level the model gave to curated notes. Prompt rules were added: grade only what the tools graded, refuse dictated figures explicitly, and keep an active what-if scenario.
 - Explicit units on every metric (`unit` field) removed Claude's earlier recurring slip, a 0.005 pp gap reported as "0.5 pp".
-- **Decision:** Gemini is the default primary (about 2x faster, and free for reviewers), with Claude as the automatic backup. Swapping the order is one env var (`LLM_PROVIDERS`). Because the free quota can run out, an exhausted provider is skipped for 60 s, so later turns go straight to the backup instead of paying the retry delay each time.
+- **Decision: Claude is primary, Gemini is the automatic backup.** Claude passed the current checks with fuller answers, and the free Gemini tier ran out of daily quota during this testing, which is exactly the risk to avoid in a live demo. The cost is latency (about 8 s vs 4 s per answer) and about $0.05 per question. A reviewer with only a free Gemini key still gets a working app, because providers without a key are skipped. Swapping the order is one env var (`LLM_PROVIDERS`). An exhausted provider is also skipped for 60 s, so later turns go straight to the backup instead of paying the retry delay each time.
 
 Iterating on the eval surfaced real issues:
 - Follow-ups re-derived numbers instead of re-running tools (now a prompt rule).

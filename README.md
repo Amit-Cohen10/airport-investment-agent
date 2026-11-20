@@ -33,10 +33,10 @@ make dev-backend    # FastAPI on :8000
 make dev-frontend   # React on :5173 (proxies /api), open http://localhost:5173
 ```
 
-**LLM keys.** Put at least one key in `backend/.env`. The first configured provider is primary; the rest are automatic fallbacks.
-- `GEMINI_API_KEY`: free at https://aistudio.google.com/apikey
+**LLM keys.** Put at least one key in `backend/.env`. The default order is Claude, then Gemini, then Groq; providers without a key are skipped, and the rest are automatic fallbacks.
+- `ANTHROPIC_API_KEY`: paid, optional. Primary when set.
+- `GEMINI_API_KEY`: free at https://aistudio.google.com/apikey. Enough on its own; the automatic backup when Claude is set.
 - `GROQ_API_KEY`: free at https://console.groq.com/keys
-- `ANTHROPIC_API_KEY`: paid, optional. An automatic backup if Gemini is rate-limited or down.
 
 With **no key at all**, the app still works in **offline mode**: a deterministic intent router runs the same analyses and assembles answers from their results.
 
