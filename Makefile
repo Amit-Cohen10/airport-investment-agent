@@ -18,8 +18,8 @@ lint:
 	cd backend && uv run ruff check app tests && uv run ruff format --check app tests
 	cd frontend && npm test && npm run build
 
-ingest:           ## refresh the Parquet snapshot from public FAA/BTS sources
-	cd backend && uv run python -m app.data.ingest
+ingest:           ## refresh the Parquet snapshot from public FAA/BTS sources (+ the UI's home-screen map points)
+	cd backend && uv run python -m app.data.ingest && PYTHONPATH=. uv run python scripts/export_map_points.py
 
 eval:             ## run the golden-question evaluation against the configured LLM
 	cd backend && uv run python ../evals/run_eval.py

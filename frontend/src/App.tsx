@@ -2,6 +2,7 @@ import { ArrowRight, ArrowUp, Database, Mic, MicOff, Plane, RotateCcw, Square, V
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchHealth } from './api/client'
 import type { Health } from './api/types'
+import { AIRPORT_COUNT, AirportMap } from './components/AirportMap'
 import { EvidencePanel } from './components/EvidencePanel'
 import { EXAMPLE_QUESTIONS, FOLLOW_UPS } from './components/labels'
 import { MessageView } from './components/MessageView'
@@ -32,7 +33,8 @@ export default function App() {
 
   useEffect(() => {
     // scrollIntoView works whichever element scrolls (the chat pane on desktop, the page on mobile).
-    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+    // Only once a conversation exists: the home screen must open at its top.
+    if (messages.length > 0) endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
   }, [messages])
 
   // Evidence panel shows the selected answer, or the latest one.
@@ -135,9 +137,12 @@ export default function App() {
             <div ref={endRef} />
           </div>
 
-          <form onSubmit={submit} className="sticky bottom-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 lg:static">
+          <form
+            onSubmit={submit}
+            className="sticky bottom-0 bg-gradient-to-t from-slate-50 from-60% to-slate-50/0 px-4 pb-3 pt-5 sm:px-6 lg:static"
+          >
             {speech.error && <p className="mb-1 text-xs text-amber-700">{speech.error}</p>}
-            <div className="flex items-end gap-2 rounded-[22px] border border-slate-300 bg-white py-1.5 pl-4 pr-1.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-colors focus-within:border-slate-900 focus-within:ring-4 focus-within:ring-slate-900/5">
+            <div className="flex items-end gap-2 rounded-[22px] border border-slate-200 bg-white py-1.5 pl-4 pr-1.5 shadow-[0_10px_30px_-14px_rgb(0_0_0/0.25),0_1px_2px_rgb(0_0_0/0.04)] transition-[border-color,box-shadow] focus-within:border-slate-900 focus-within:shadow-[0_12px_32px_-14px_rgb(0_0_0/0.3),0_0_0_4px_rgb(23_23_25/0.05)]">
               <textarea
                 value={speech.listening ? speech.interim : input}
                 onChange={(e) => setInput(e.target.value)}
@@ -146,7 +151,7 @@ export default function App() {
                 }}
                 rows={1}
                 placeholder={speech.listening ? 'Listening...' : 'Ask about US airports, e.g. "Compare LAX and SNA congestion"'}
-                className="max-h-32 min-h-[24px] flex-1 resize-none self-center bg-transparent py-1 text-[15px] outline-none placeholder:text-slate-400"
+                className="scroll-none max-h-32 min-h-[24px] flex-1 resize-none self-center bg-transparent py-1 text-[15px] outline-none placeholder:text-slate-400"
                 aria-label="Message"
               />
               {speech.canSpeak && (
@@ -202,15 +207,29 @@ export default function App() {
 
 function EmptyState({ onPick }: { onPick: (q: string) => void }) {
   return (
-    <div className="mx-auto max-w-xl pt-6 sm:pt-14">
-      <h2 className="font-display text-[30px] font-light leading-[1.1] tracking-[-0.035em] text-slate-900 sm:text-[34px]">
-        Where will terminal investment pay off?
-      </h2>
-      <p className="mt-2 max-w-[60ch] text-[14px] leading-relaxed text-slate-600">
-        Ask about US airports. The agent ranks and compares them with a deterministic scoring model on FAA enplanements,
-        BTS T-100 traffic, on-time performance and airfares, then explains its reasoning, assumptions and confidence.
-      </p>
-      <ul className="mt-8 divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="mx-auto max-w-2xl pt-2 sm:pt-6">
+      <section className="rise overflow-hidden rounded-2xl bg-ink px-6 pb-5 pt-7 text-white sm:px-8 sm:pt-9">
+        <h2 className="max-w-[18ch] font-display text-[34px] font-light leading-[1.05] tracking-[-0.04em] sm:text-[42px]">
+          Where will terminal investment pay off?
+        </h2>
+        <div className="mt-5 grid items-end gap-4 2xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <div>
+            <p className="text-[14px] leading-relaxed text-slate-300">
+              Ask about US airports. The agent ranks and compares them with a deterministic scoring model on FAA
+              enplanements, BTS T-100 traffic, on-time performance and airfares, then explains its reasoning,
+              assumptions and confidence.
+            </p>
+            <p className="num mt-5 text-[12px] leading-snug text-slate-400">
+              {AIRPORT_COUNT} US airports in the scoring universe, sized by passengers · public FAA &amp; BTS data
+            </p>
+          </div>
+          <AirportMap
+            highlight={['BOS', 'LAX', 'SNA', 'SFO']}
+            className="-mb-2 ml-auto block h-auto w-full sm:-mr-2 sm:max-h-[205px] sm:w-auto 2xl:max-h-none 2xl:w-full"
+          />
+        </div>
+      </section>
+      <ul className="rise mt-4 divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white [animation-delay:60ms]">
         {EXAMPLE_QUESTIONS.map((q) => (
           <li key={q}>
             <button

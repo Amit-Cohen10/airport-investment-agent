@@ -78,7 +78,7 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
             <p className="text-sm text-slate-500">No analyses were run for this answer.</p>
           ) : (
             answer.evidence.map((e, i) => (
-              <section key={i} className="space-y-3.5">
+              <section key={i} className="rise space-y-3.5" style={{ animationDelay: `${i * 50}ms` }}>
                 <div className="flex items-center gap-2.5">
                   <h3 className="text-[13.5px] font-semibold text-slate-900">{toolLabel(e.tool)}</h3>
                   {e.confidence && (

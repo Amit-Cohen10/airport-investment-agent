@@ -15,7 +15,7 @@ interface Props {
 export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
   if (message.role === 'user') {
     return (
-      <div className="flex justify-end">
+      <div className="rise flex justify-end">
         <div className="max-w-[85%] rounded-[18px] rounded-br-md bg-ink px-4 py-2.5 text-[14.5px] leading-snug text-white">
           {message.text}
         </div>
@@ -26,7 +26,7 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
   const answer = message.answer
   return (
     <div
-      className={`rounded-xl border bg-white px-4 py-3.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-colors ${
+      className={`rise rounded-xl border bg-white px-4 py-3.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-colors ${
         selected ? 'border-slate-900 ring-4 ring-slate-900/5' : 'border-slate-200'
       } ${answer ? 'cursor-pointer hover:border-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900' : ''}`}
       onClick={answer ? onSelect : undefined}
