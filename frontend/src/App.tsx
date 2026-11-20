@@ -1,4 +1,4 @@
-import { ArrowUp, Database, Mic, MicOff, Plane, RotateCcw, Square, Volume2, VolumeX } from 'lucide-react'
+import { ArrowRight, ArrowUp, Database, Mic, MicOff, Plane, RotateCcw, Square, Volume2, VolumeX } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchHealth } from './api/client'
 import type { Health } from './api/types'
@@ -49,46 +49,55 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-900 text-white">
-          <Plane className="h-5 w-5" />
+      <header className="flex items-center gap-3 border-b border-black/40 bg-ink px-4 py-2.5 text-white sm:px-5">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ink-soft text-sign ring-1 ring-sign/30">
+          <Plane className="h-[18px] w-[18px]" aria-hidden />
         </div>
         <div className="min-w-0">
-          <h1 className="text-[15px] font-semibold leading-tight text-slate-900">Airport Investment Intelligence</h1>
-          <p className="hidden truncate text-xs text-slate-500 sm:block">
-            Terminal-expansion screening on public FAA & BTS data · deterministic scoring, AI explanation
+          <h1 className="truncate font-display text-[16px] font-normal leading-tight tracking-[-0.02em]">
+            <span className="sm:hidden">Airport Intelligence</span>
+            <span className="hidden sm:inline">Airport Investment Intelligence</span>
+          </h1>
+          <p className="hidden truncate text-[12px] leading-tight text-slate-400 sm:block">
+            Terminal-expansion screening on public FAA &amp; BTS data · deterministic scoring, AI explanation
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {health && (
             <span
-              className="hidden items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 md:inline-flex"
+              className="num hidden items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1 text-[12px] text-slate-300 md:inline-flex"
               title={Object.entries(health.data_periods).map(([k, v]) => `${k}: ${v}`).join('\n')}
             >
               <Database className="h-3.5 w-3.5" /> Traffic data through {health.data_periods.traffic?.split(' - ')[1]}
             </span>
           )}
           {healthError ? (
-            <span className="rounded-full bg-rose-50 px-2.5 py-1 text-xs text-rose-700">Backend unreachable</span>
+            <span className="rounded-md bg-rose-500/15 px-2.5 py-1 text-[12px] text-rose-200 ring-1 ring-rose-400/30">Backend unreachable</span>
           ) : (
             health?.llm && (
               <span
-                className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs ${offlineOnly ? 'bg-amber-50 text-amber-700' : 'bg-teal-50 text-teal-700'}`}
+                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-[12px] ring-1 ${
+                  offlineOnly ? 'bg-amber-400/10 text-amber-200 ring-amber-300/30' : 'bg-emerald-400/10 text-emerald-200 ring-emerald-300/25'
+                }`}
                 title={`LLM chain: ${health.llm.providers.join(' -> ')}`}
               >
+                <span className={`h-1.5 w-1.5 rounded-full ${offlineOnly ? 'bg-amber-300' : 'bg-emerald-300'}`} aria-hidden />
                 {offlineOnly ? (<><span className="hidden sm:inline">Offline mode (no LLM key)</span><span className="sm:hidden">Offline</span></>) : health.llm.providers[0].split(':')[0]}
               </span>
             )
           )}
           <button
             type="button"
+            aria-label="New chat"
+            title="New chat"
             onClick={() => {
               reset()
               setSelectedId(null)
             }}
-            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-white/25 px-3.5 py-1.5 text-[13px] text-white transition-colors hover:bg-white hover:text-ink"
           >
-            <RotateCcw className="h-4 w-4" /> New chat
+            <RotateCcw className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">New chat</span>
           </button>
         </div>
       </header>
@@ -116,7 +125,7 @@ export default function App() {
                     key={q}
                     type="button"
                     onClick={() => void ask(q)}
-                    className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 hover:border-brand-500 hover:text-brand-700"
+                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[12.5px] text-slate-700 transition-colors hover:border-slate-900 hover:text-slate-900"
                   >
                     {q}
                   </button>
@@ -128,7 +137,7 @@ export default function App() {
 
           <form onSubmit={submit} className="sticky bottom-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 lg:static">
             {speech.error && <p className="mb-1 text-xs text-amber-700">{speech.error}</p>}
-            <div className="flex items-end gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-100">
+            <div className="flex items-end gap-2 rounded-[22px] border border-slate-300 bg-white py-1.5 pl-4 pr-1.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-colors focus-within:border-slate-900 focus-within:ring-4 focus-within:ring-slate-900/5">
               <textarea
                 value={speech.listening ? speech.interim : input}
                 onChange={(e) => setInput(e.target.value)}
@@ -137,7 +146,7 @@ export default function App() {
                 }}
                 rows={1}
                 placeholder={speech.listening ? 'Listening...' : 'Ask about US airports, e.g. "Compare LAX and SNA congestion"'}
-                className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent text-[15px] outline-none placeholder:text-slate-400"
+                className="max-h-32 min-h-[24px] flex-1 resize-none self-center bg-transparent py-1 text-[15px] outline-none placeholder:text-slate-400"
                 aria-label="Message"
               />
               {speech.canSpeak && (
@@ -163,7 +172,7 @@ export default function App() {
                 </IconButton>
               )}
               {busy ? (
-                <button type="button" onClick={stop} aria-label="Stop" className="rounded-lg bg-slate-800 p-2 text-white hover:bg-slate-700">
+                <button type="button" onClick={stop} aria-label="Stop" className="rounded-full bg-slate-900 p-2 text-white hover:bg-black">
                   <Square className="h-4 w-4" />
                 </button>
               ) : (
@@ -171,19 +180,19 @@ export default function App() {
                   type="submit"
                   disabled={!input.trim()}
                   aria-label="Send"
-                  className="rounded-lg bg-brand-600 p-2 text-white hover:bg-brand-700 disabled:bg-slate-300"
+                  className="rounded-full bg-slate-900 p-2 text-white transition-colors hover:bg-black disabled:bg-slate-200 disabled:text-slate-400"
                 >
                   <ArrowUp className="h-4 w-4" />
                 </button>
               )}
             </div>
             <p className="mt-1.5 text-[11px] text-slate-400">
-              Scores are screening signals computed by code from public data; the AI explains them. Not investment advice.
+              Scores are screening priorities computed by code from public data; the AI explains them. Not investment advice.
             </p>
           </form>
         </section>
 
-        <aside className="min-h-[70vh] border-t border-slate-200 bg-slate-50 lg:min-h-0 lg:flex-1 lg:border-l lg:border-t-0">
+        <aside className="min-h-[70vh] border-t border-slate-200 bg-slate-100 lg:min-h-0 lg:flex-1 lg:border-l lg:border-t-0">
           <EvidencePanel answer={active?.answer ?? null} />
         </aside>
       </main>
@@ -193,24 +202,31 @@ export default function App() {
 
 function EmptyState({ onPick }: { onPick: (q: string) => void }) {
   return (
-    <div className="mx-auto max-w-2xl pt-6 sm:pt-12">
-      <h2 className="text-xl font-semibold text-slate-900">Where will terminal investment pay off?</h2>
-      <p className="mt-1.5 text-sm text-slate-600">
+    <div className="mx-auto max-w-xl pt-6 sm:pt-14">
+      <h2 className="font-display text-[30px] font-light leading-[1.1] tracking-[-0.035em] text-slate-900 sm:text-[34px]">
+        Where will terminal investment pay off?
+      </h2>
+      <p className="mt-2 max-w-[60ch] text-[14px] leading-relaxed text-slate-600">
         Ask about US airports. The agent ranks and compares them with a deterministic scoring model on FAA enplanements,
         BTS T-100 traffic, on-time performance and airfares, then explains its reasoning, assumptions and confidence.
       </p>
-      <div className="mt-6 grid gap-2 sm:grid-cols-2">
+      <ul className="mt-8 divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white">
         {EXAMPLE_QUESTIONS.map((q) => (
-          <button
-            key={q}
-            type="button"
-            onClick={() => onPick(q)}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-700 shadow-sm transition hover:border-brand-500 hover:shadow"
-          >
-            {q}
-          </button>
+          <li key={q}>
+            <button
+              type="button"
+              onClick={() => onPick(q)}
+              className="group flex w-full items-center gap-3 px-4 py-3.5 text-left text-[14px] text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
+            >
+              <span className="flex-1">{q}</span>
+              <ArrowRight
+                className="h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-900"
+                aria-hidden
+              />
+            </button>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   )
 }
@@ -223,7 +239,7 @@ function IconButton(props: { label: string; onClick: () => void; active?: boolea
       disabled={props.disabled}
       aria-label={props.label}
       title={props.label}
-      className={`rounded-lg p-2 transition disabled:opacity-40 ${
+      className={`rounded-full p-2 transition-colors disabled:opacity-40 ${
         props.active ? 'bg-rose-50 text-rose-600' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
       }`}
     >

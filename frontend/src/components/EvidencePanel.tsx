@@ -8,9 +8,9 @@ type Tab = 'evidence' | 'sources' | 'trace'
 const TABS: Tab[] = ['evidence', 'sources', 'trace']
 
 const CONFIDENCE_STYLE: Record<string, string> = {
-  high: 'bg-teal-50 text-teal-700',
-  medium: 'bg-amber-50 text-amber-700',
-  low: 'bg-rose-50 text-rose-700',
+  high: 'bg-emerald-50 text-emerald-800 ring-emerald-200/70',
+  medium: 'bg-amber-50 text-amber-800 ring-amber-200/70',
+  low: 'bg-rose-50 text-rose-800 ring-rose-200/70',
 }
 
 export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
@@ -35,7 +35,7 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
   return (
     <div className="flex h-full flex-col">
       <div
-        className="flex gap-1 border-b border-slate-200 px-4 pt-3"
+        className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 pt-2.5 scroll-thin"
         role="tablist"
         aria-label="Answer details"
         onKeyDown={(e) => {
@@ -68,7 +68,7 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
         tabIndex={0}
       >
         {answer.evidence_from_earlier_turn && (
-          <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">
+          <p className="rounded-md bg-white px-3 py-2 text-xs text-slate-700 ring-1 ring-slate-200">
             This answer reused results from earlier in the conversation; the evidence below is from that earlier
             analysis, with its original data periods.
           </p>
@@ -78,19 +78,22 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
             <p className="text-sm text-slate-500">No analyses were run for this answer.</p>
           ) : (
             answer.evidence.map((e, i) => (
-              <div key={i} className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-brand-700">{toolLabel(e.tool)}</span>
+              <section key={i} className="space-y-3.5">
+                <div className="flex items-center gap-2.5">
+                  <h3 className="text-[13.5px] font-semibold text-slate-900">{toolLabel(e.tool)}</h3>
                   {e.confidence && (
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${CONFIDENCE_STYLE[e.confidence]}`}>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[11px] font-medium capitalize ring-1 ${CONFIDENCE_STYLE[e.confidence]}`}
+                    >
                       {e.confidence} confidence
                     </span>
                   )}
+                  <span className="h-px flex-1 bg-slate-200" aria-hidden />
                 </div>
                 {e.ui.map((block, j) => (
                   <Block key={j} block={block} />
                 ))}
-              </div>
+              </section>
             ))
           ))}
 
@@ -99,16 +102,16 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
             <Section title="Data sources">
               <ul className="space-y-2">
                 {answer.sources.map((s, i) => (
-                  <li key={i} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px]">
+                  <li key={i} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px]">
                     <div className="flex items-start justify-between gap-2">
                       <span className="font-medium text-slate-800">{s.source}</span>
                       {s.url && (
-                        <a href={s.url} target="_blank" rel="noreferrer" className="shrink-0 text-brand-600 hover:text-brand-700" aria-label="Open source">
+                        <a href={s.url} target="_blank" rel="noreferrer" className="shrink-0 text-slate-500 hover:text-slate-900" aria-label="Open source">
                           <ExternalLink className="h-3.5 w-3.5" />
                         </a>
                       )}
                     </div>
-                    <div className="text-xs text-slate-500">
+                    <div className="num text-xs text-slate-500">
                       Period: {s.period}
                       {s.note ? ` · ${s.note}` : ''}
                     </div>
@@ -127,7 +130,7 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
 
         {tab === 'trace' && (
           <>
-            <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 text-center">
               <Stat label="LLM calls" value={answer.trace.llm_calls} />
               <Stat label="Tokens" value={(answer.trace.prompt_tokens + answer.trace.completion_tokens).toLocaleString()} />
               <Stat label="Total" value={`${(answer.trace.total_ms / 1000).toFixed(1)} s`} />
@@ -135,12 +138,12 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
             <p className="text-xs text-slate-500">Model: {answer.trace.providers.join(', ') || 'n/a'}</p>
             <ol className="space-y-2">
               {answer.trace.steps.map((s, i) => (
-                <li key={i} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px]">
+                <li key={i} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px]">
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-slate-800">
                       {i + 1}. {s.type === 'llm' ? `LLM (${s.provider})` : toolLabel(s.tool ?? '')}
                     </span>
-                    <span className="font-mono text-[11px] text-slate-400">{s.ms} ms</span>
+                    <span className="num font-mono text-[11px] text-slate-400">{s.ms} ms</span>
                   </div>
                   {s.type === 'llm' && (
                     <div className="text-xs text-slate-500">
@@ -181,8 +184,8 @@ function TabButton(props: {
       aria-controls={`panel-${props.id}`}
       tabIndex={props.active ? 0 : -1}
       onClick={props.onClick}
-      className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 pb-2 text-[13px] font-medium ${
-        props.active ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+      className={`-mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 pb-2 text-[13px] font-medium transition-colors ${
+        props.active ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'
       }`}
     >
       {props.icon}
@@ -194,7 +197,7 @@ function TabButton(props: {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h4 className="mb-1.5 text-[13px] font-semibold text-slate-700">{title}</h4>
+      <h3 className="mb-2 text-[13.5px] font-semibold text-slate-900">{title}</h3>
       {children}
     </section>
   )
@@ -213,9 +216,9 @@ function BulletList({ items }: { items: string[] }) {
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-2 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="font-semibold tabular-nums text-slate-900">{value}</div>
+    <div className="bg-white px-2 py-2.5">
+      <div className="text-[12px] text-slate-500">{label}</div>
+      <div className="num mt-0.5 text-[15px] font-semibold text-slate-900">{value}</div>
     </div>
   )
 }

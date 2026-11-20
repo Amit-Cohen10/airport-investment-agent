@@ -1,8 +1,11 @@
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { BarChartBlock, KpiBlock, TableBlock, UIBlock } from '../../api/types'
+import { CellText, isNumericCell } from '../AirportCode'
 
-// Validated categorical palette (distinct in hue and lightness, colorblind-friendly order).
-const PALETTE = ['#2453e0', '#0d9488', '#d97706', '#9333ea', '#dc2626', '#64748b']
+// Categorical palette: ink, teal, amber, violet, rose, gray. Distinct in hue and lightness,
+// colorblind-friendly order; the first series takes the monochrome product ink.
+const PALETTE = ['#232325', '#2a8c82', '#c98a12', '#7a5bc4', '#c23a4b', '#909096']
+const AXIS = { fontSize: 11, fill: '#6b6b70', fontFamily: 'Inter' }
 
 export function Block({ block }: { block: UIBlock }) {
   switch (block.type) {
@@ -15,44 +18,60 @@ export function Block({ block }: { block: UIBlock }) {
   }
 }
 
+/** Stat grid: hairline-divided cells (a ledger, not a stack of cards). */
 function Kpis({ block }: { block: KpiBlock }) {
   return (
     <section>
       <BlockTitle>{block.title}</BlockTitle>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-200 bg-slate-200 sm:grid-cols-3">
         {block.items.map((kpi) => (
-          <div key={kpi.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{kpi.label}</div>
-            <div className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900">{kpi.value}</div>
-            {kpi.hint && <div className="text-xs text-slate-500">{kpi.hint}</div>}
+          <div key={kpi.label} className="bg-white px-3 py-2.5">
+            <dt className="text-[12px] leading-tight text-slate-500">{kpi.label}</dt>
+            <dd className="num mt-1 text-[17px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
+              <CellText value={kpi.value} />
+            </dd>
+            {kpi.hint && <dd className="num mt-0.5 text-[11.5px] leading-snug text-slate-500">{kpi.hint}</dd>}
           </div>
         ))}
-      </div>
+      </dl>
     </section>
   )
 }
 
 function Table({ block }: { block: TableBlock }) {
+  // A column is numeric when every non-empty cell in it looks like a number.
+  const numeric = block.columns.map((_, j) =>
+    block.rows.every((row) => row[j] === null || row[j] === '-' || row[j] === 'n/a' || isNumericCell(row[j])),
+  )
   return (
     <section>
       <BlockTitle>{block.title}</BlockTitle>
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white scroll-thin">
-        <table className="w-full text-left text-[13px]">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              {block.columns.map((c) => (
-                <th key={c} className="whitespace-nowrap px-3 py-2 font-medium">
-                  {c}
+      <div className="overflow-x-auto rounded-md border border-slate-200 bg-white scroll-thin">
+        <table className="num w-full text-left text-[13px]">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50">
+              {block.columns.map((c, j) => (
+                <th
+                  key={c}
+                  scope="col"
+                  className={`whitespace-nowrap px-3 py-2 text-[11.5px] font-medium text-slate-500 ${numeric[j] ? 'text-right' : ''}`}
+                >
+                  <CellText value={c} />
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {block.rows.map((row, i) => (
-              <tr key={i} className="border-t border-slate-100">
+              <tr key={i} className="border-t border-slate-100 first:border-t-0 hover:bg-slate-50">
                 {row.map((cell, j) => (
-                  <td key={j} className={`px-3 py-1.5 tabular-nums ${j === 0 ? 'font-medium text-slate-900' : 'text-slate-700'}`}>
-                    {cell ?? '-'}
+                  <td
+                    key={j}
+                    className={`px-3 py-1.5 align-top ${j === 0 ? 'font-medium text-slate-900' : 'text-slate-700'} ${
+                      numeric[j] ? 'whitespace-nowrap text-right' : ''
+                    }`}
+                  >
+                    <CellText value={cell} />
                   </td>
                 ))}
               </tr>
@@ -60,7 +79,7 @@ function Table({ block }: { block: TableBlock }) {
           </tbody>
         </table>
       </div>
-      {block.note && <p className="mt-1 text-xs text-slate-500">{block.note}</p>}
+      {block.note && <p className="mt-1.5 text-[11.5px] leading-snug text-slate-500">{block.note}</p>}
     </section>
   )
 }
@@ -76,26 +95,33 @@ function Chart({ block }: { block: BarChartBlock }) {
   return (
     <section>
       <BlockTitle>{block.title}</BlockTitle>
-      <div className="rounded-lg border border-slate-200 bg-white p-2" style={{ height }}>
+      <div className="rounded-md border border-slate-200 bg-white p-2" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
-            <CartesianGrid horizontal={false} stroke="#e2e8f0" />
-            <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} unit={block.unit === '%' ? '%' : undefined} />
-            <YAxis type="category" dataKey="category" width={92} tick={{ fontSize: 11, fill: '#334155' }} />
+            <CartesianGrid horizontal={false} stroke="#eef1f5" />
+            <XAxis type="number" tick={AXIS} axisLine={{ stroke: '#e6e6e8' }} tickLine={false} unit={block.unit === '%' ? '%' : undefined} />
+            <YAxis
+              type="category"
+              dataKey="category"
+              width={96}
+              tick={{ ...AXIS, fill: '#232325' }}
+              axisLine={{ stroke: '#e6e6e8' }}
+              tickLine={false}
+            />
             <Tooltip
-              cursor={{ fill: '#f1f5f9' }}
-              contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: '#e2e8f0' }}
+              cursor={{ fill: '#fafafa' }}
+              contentStyle={{ fontSize: 12, fontFamily: 'Inter', borderRadius: 6, borderColor: '#e6e6e8' }}
               formatter={(v) => `${v}${block.unit === '%' ? '%' : ''}`}
             />
-            {showLegend && <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />}
+            {showLegend && <Legend wrapperStyle={{ fontSize: 11, fontFamily: 'Inter' }} iconSize={8} />}
             {block.series.map((s, i) => (
               <Bar
                 key={s.name}
                 dataKey={s.name}
                 stackId={block.stacked ? 'a' : undefined}
                 fill={PALETTE[i % PALETTE.length]}
-                radius={block.stacked ? 0 : [0, 3, 3, 0]}
-                maxBarSize={22}
+                radius={block.stacked ? 0 : [0, 2, 2, 0]}
+                maxBarSize={20}
               />
             ))}
           </BarChart>
@@ -106,5 +132,5 @@ function Chart({ block }: { block: BarChartBlock }) {
 }
 
 function BlockTitle({ children }: { children: React.ReactNode }) {
-  return <h4 className="mb-1.5 text-[13px] font-semibold text-slate-700">{children}</h4>
+  return <h4 className="mb-2 text-[12.5px] font-semibold text-slate-700">{children}</h4>
 }

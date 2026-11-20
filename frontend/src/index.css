@@ -1,29 +1,87 @@
 @import "tailwindcss";
 
+/*
+ * Visual system: an analyst tool in a Wonderful-adjacent language (design language only; no
+ * Wonderful name or logo: the product belongs to the client).
+ * Monochrome: near-black ink, warm-neutral grays, off-white surfaces, pill-shaped actions, light
+ * tightly-tracked display type (Inter Tight standing in for a licensed display face), Inter for UI.
+ * Color is reserved for meaning: confidence states, chart series, and one aviation detail,
+ * airport codes set like taxiway location signs (yellow legend on black).
+ * Overriding the slate/brand scales keeps every component on tokens.
+ */
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --color-brand-50: #eef4ff;
-  --color-brand-100: #dbe6fe;
-  --color-brand-500: #3b6ef6;
-  --color-brand-600: #2453e0;
-  --color-brand-700: #1d41b5;
-  --color-brand-900: #1e3a8a;
+  --font-display: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f4f4f5;
+  --color-slate-200: #e6e6e8;
+  --color-slate-300: #cfcfd3;
+  --color-slate-400: #909096;
+  --color-slate-500: #6b6b70;
+  --color-slate-600: #525257;
+  --color-slate-700: #393939;
+  --color-slate-800: #232325;
+  --color-slate-900: #171719;
+
+  --color-brand-50: #f4f4f5;
+  --color-brand-100: #e6e6e8;
+  --color-brand-500: #3a3a3e;
+  --color-brand-600: #171719;
+  --color-brand-700: #000000;
+  --color-brand-900: #000000;
+
+  --color-ink: #0b0b0c;
+  --color-ink-soft: #1c1c1f;
+  --color-sign: #f5c518;
 }
 
 html, body, #root { height: 100%; }
-body { @apply bg-slate-50 text-slate-800 antialiased; }
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+  font-feature-settings: "cv11" on; /* Inter's single-storey 'a' softens dense UI text */
+}
+
+/* Browser surfaces carry the design too. */
+::selection { background: var(--color-sign); color: var(--color-ink); }
+textarea, input { caret-color: var(--color-brand-600); }
+:focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; }
+/* The composer frame shows focus for its textarea (focus-within ring); avoid a second outline inside it. */
+textarea:focus-visible { outline: none; }
+.scroll-thin { scrollbar-width: thin; scrollbar-color: var(--color-slate-300) transparent; }
+
+/* Numbers line up in every data surface. */
+.num { font-variant-numeric: tabular-nums lining-nums; }
+
+/* Airport code: a taxiway location sign (yellow legend on black). */
+.apt-code {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  background: var(--color-ink);
+  color: var(--color-sign);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  padding: 3px 5px 2px;
+  box-shadow: inset 0 0 0 1px rgb(245 197 24 / 0.35);
+}
 
 /* Markdown answer typography */
-.prose-answer { @apply text-[15px] leading-relaxed text-slate-800; }
+.prose-answer { @apply text-[15px] leading-[1.6] tracking-[-0.006em] text-slate-800; }
 .prose-answer p { @apply my-2; }
 .prose-answer strong { @apply font-semibold text-slate-900; }
 .prose-answer ul { @apply my-2 list-disc pl-5 space-y-1; }
 .prose-answer ol { @apply my-2 list-decimal pl-5 space-y-1; }
-.prose-answer h1, .prose-answer h2, .prose-answer h3 { @apply mt-3 mb-1 font-semibold text-slate-900; }
-.prose-answer h3 { @apply text-[15px]; }
+.prose-answer li::marker { color: var(--color-slate-400); }
+.prose-answer h1, .prose-answer h2, .prose-answer h3, .prose-answer h4 {
+  @apply mt-4 mb-1 text-[13px] font-semibold uppercase tracking-[0.04em] text-slate-500;
+}
+.prose-answer > :first-child { @apply mt-0; }
 .prose-answer code { @apply rounded bg-slate-100 px-1 py-0.5 font-mono text-[13px]; }
 .prose-answer table { @apply my-2 w-full text-sm; }
 .prose-answer th, .prose-answer td { @apply border-b border-slate-200 px-2 py-1 text-left; }
-
-.scroll-thin { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+.prose-answer em { @apply text-slate-600; }

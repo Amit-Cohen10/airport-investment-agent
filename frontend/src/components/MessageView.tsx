@@ -16,7 +16,7 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-brand-600 px-4 py-2.5 text-[15px] text-white shadow-sm">
+        <div className="max-w-[85%] rounded-[18px] rounded-br-md bg-ink px-4 py-2.5 text-[14.5px] leading-snug text-white">
           {message.text}
         </div>
       </div>
@@ -26,9 +26,9 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
   const answer = message.answer
   return (
     <div
-      className={`rounded-2xl rounded-bl-sm border bg-white px-4 py-3 shadow-sm transition ${
-        selected ? 'border-brand-500 ring-2 ring-brand-100' : 'border-slate-200'
-      } ${answer ? 'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500' : ''}`}
+      className={`rounded-xl border bg-white px-4 py-3.5 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-colors ${
+        selected ? 'border-slate-900 ring-4 ring-slate-900/5' : 'border-slate-200'
+      } ${answer ? 'cursor-pointer hover:border-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900' : ''}`}
       onClick={answer ? onSelect : undefined}
       role={answer ? 'button' : undefined}
       tabIndex={answer ? 0 : undefined}
@@ -45,21 +45,21 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
           : undefined
       }
     >
-      {message.notice && <p className="mb-2 rounded-lg bg-sky-50 px-3 py-1.5 text-xs text-sky-800">{message.notice}</p>}
+      {message.notice && <p className="mb-2 rounded-md bg-brand-50 px-3 py-1.5 text-xs text-brand-900">{message.notice}</p>}
       {(message.steps?.length ?? 0) > 0 && (
-        <ul className="mb-2 space-y-1">
+        <ul className="mb-3 space-y-1 border-b border-slate-100 pb-2.5">
           {message.steps!.map((s, i) => (
-            <li key={i} className="flex items-center gap-2 text-[13px] text-slate-600">
+            <li key={i} className="flex min-w-0 items-center gap-2 text-[12.5px] text-slate-600">
               {!s.done ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-600" />
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-brand-600" />
               ) : s.ok ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-teal-600" />
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
               ) : (
-                <XCircle className="h-3.5 w-3.5 text-amber-600" />
+                <XCircle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
               )}
-              <span className="font-medium">{toolLabel(s.tool)}</span>
+              <span className="shrink-0 font-medium text-slate-700">{toolLabel(s.tool)}</span>
               {s.done && s.summary && <span className="truncate text-slate-500">· {s.summary}</span>}
-              {s.done && s.ms !== undefined && <span className="ml-auto shrink-0 font-mono text-[11px] text-slate-400">{s.ms} ms</span>}
+              {s.done && s.ms !== undefined && <span className="num ml-auto shrink-0 font-mono text-[11px] text-slate-400">{s.ms} ms</span>}
             </li>
           ))}
         </ul>
@@ -72,7 +72,7 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
       )}
 
       {message.error && (
-        <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <div className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 ring-1 ring-amber-200/70">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {message.error}
         </div>
       )}
@@ -82,7 +82,7 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
           <div className="prose-answer">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer.answer}</ReactMarkdown>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2 text-xs">
+          <div className="num mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2.5 text-xs">
             <GroundingBadge grounding={answer.grounding} />
             <span className="text-slate-400">
               {answer.evidence.length} analyses · {answer.sources.length} sources · {formatMs(answer.trace.total_ms)}
@@ -94,7 +94,7 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
                   e.stopPropagation()
                   onSpeak(answer.answer)
                 }}
-                className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
                 aria-label="Read answer aloud"
               >
                 <Volume2 className="h-3.5 w-3.5" /> Listen
@@ -113,7 +113,7 @@ function GroundingBadge({ grounding }: { grounding: AgentAnswer['grounding'] }) 
   const badges = []
   if (grounding.checked === 0) {
     badges.push(
-      <span key="none" className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
+      <span key="none" className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-600 ring-1 ring-slate-200">
         No figures to check
       </span>,
     )
@@ -121,7 +121,7 @@ function GroundingBadge({ grounding }: { grounding: AgentAnswer['grounding'] }) 
     badges.push(
       <span
         key="ok"
-        className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 font-medium text-teal-700"
+        className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800 ring-1 ring-emerald-200/70"
         title="Every figure in the answer matches a value returned by the analyses (numeric match, not a proof of the narrative)"
       >
         <ShieldCheck className="h-3.5 w-3.5" /> {grounding.checked} figures match the data
@@ -131,7 +131,7 @@ function GroundingBadge({ grounding }: { grounding: AgentAnswer['grounding'] }) 
     badges.push(
       <span
         key="bad"
-        className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700"
+        className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 font-medium text-amber-800 ring-1 ring-amber-200/70"
         title={`Not found in the analyses' outputs: ${grounding.unverified.join(', ')}`}
       >
         <AlertTriangle className="h-3.5 w-3.5" /> {grounding.unverified.length} not found in data:{' '}
@@ -143,7 +143,7 @@ function GroundingBadge({ grounding }: { grounding: AgentAnswer['grounding'] }) 
     badges.push(
       <span
         key="conf"
-        className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700"
+        className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 font-medium text-amber-800 ring-1 ring-amber-200/70"
         title="The answer states a higher confidence than the analyses returned"
       >
         <AlertTriangle className="h-3.5 w-3.5" /> Confidence overstated
