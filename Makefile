@@ -16,7 +16,7 @@ test:             ## backend test suite (no network, no API key needed)
 
 lint:
 	cd backend && uv run ruff check app tests && uv run ruff format --check app tests
-	cd frontend && npm run build
+	cd frontend && npm test && npm run build
 
 ingest:           ## refresh the Parquet snapshot from public FAA/BTS sources
 	cd backend && uv run python -m app.data.ingest

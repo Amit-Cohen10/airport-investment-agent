@@ -186,7 +186,9 @@ class AirportDirectory:
         if len(named):
             return self._with_metro(Resolution(text, [named.index[0]], "name", alternatives=list(named.index[1:5])))
         candidates = list(self.df["city_u"]) + list(self.df["name_u"])
-        close = difflib.get_close_matches(q, candidates, n=1, cutoff=0.75)
+        close = difflib.get_close_matches(
+            q, candidates, n=1, cutoff=0.84
+        )  # 0.84: catches typos ("Pheonix") but not "Atlantis" -> Atlanta
         if close:
             hit = self.df[(self.df["city_u"] == close[0]) | (self.df["name_u"] == close[0])].index[0]
             return self._with_metro(Resolution(text, [hit], "fuzzy", note=f"closest match: {close[0].title()}"))

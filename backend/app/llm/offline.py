@@ -64,7 +64,7 @@ class OfflinePlanner:
         codes, region = self.resolve(question)
         if not codes and not region:  # follow-up: reuse airports from the session state
             focus = re.search(r"Airports discussed so far[^:]*: ([A-Z, ]+)\.", system_prompt)
-            codes = [c.strip() for c in focus.group(1).split(",")][-2:] if focus else []
+            codes = [c.strip() for c in focus.group(1).split(",")][-2:][::-1] if focus else []  # most recent first
         intent = next((name for name, pattern in INTENTS if pattern.search(question)), None)
         if intent == "explain_methodology":
             topic = "unmet_demand" if "spill" in question.lower() or "unmet" in question.lower() else "expansion_score"
