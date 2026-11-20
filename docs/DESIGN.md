@@ -95,6 +95,15 @@ flowchart LR
 
 Every number the agent shows carries its **source and period**.
 
+**Joining the sources (a real data-engineering problem here):**
+- All tables are keyed on IATA code. FAA files use FAA location ids, which usually match IATA but not always (Glacier Park: GPI vs FCA; State College: UNV vs SCE), so ingest bridges them through OurAirports, which carries both.
+- Code changes are reconciled too: Palm Beach PBI became DJT in 2026, so older rows are mapped forward and the airport doesn't split in two.
+- Territories (San Juan, Guam, Saipan, USVI) are included, so they have reference data like everyone else.
+
+**Data coverage gaps (stated, not hidden):**
+- Fares (Table 1a) cover only the largest domestic markets, so the fare premium is missing for about 40% of peers. Examples: Hawaii, Alaska, Puerto Rico and several small airports.
+- On-time data covers only "reporting carriers". Its share of an airport's domestic departures ranges from ~2% (Bethel, AK) to ~90%. Where that share is below 20%, the on-time rates come from an unrepresentative sample and are dropped.
+
 ---
 
 ## 4. Scoring methodology (deterministic)
@@ -114,7 +123,10 @@ Every number the agent shows carries its **source and period**.
 1. **Peer universe:** 233 US airports with at least 100k annual enplanements.
 2. **Normalization:** each metric becomes a **percentile rank** against the peer universe. Percentiles are robust to outliers (e.g. HVN grew 15x vs 2019 after a new airline base), unit-free, and easy to explain ("82nd percentile"). The trade-off is that magnitude is lost, so raw values are always shown next to percentiles.
 3. **Aggregation:** pillar score = weighted mean of its metric percentiles; total score = weighted mean of pillar scores.
-4. **Missing data:** missing metrics are dropped and the remaining weights re-normalized. **Coverage** (the share of total weight that had data) sets the confidence grade: High >= 90%, Medium >= 70%. Example: HVN has no on-time data, so it is graded Medium.
+4. **Missing data is neutral.** A missing metric is scored at the median (50th percentile), so a data gap is neither rewarded nor punished.
+   - The obvious alternative, re-normalizing weights over the metrics that exist, is a trap. A review caught it ranking San Juan #1 nationally: SJU has no fare data, so its revenue pillar became "scale only".
+   - **Coverage** (the share of total weight backed by real data) sets the confidence grade: High >= 95%, Medium >= 70%, otherwise Low. Any material gap therefore caps an airport at Medium.
+   - Examples: SJU (no fare data) and HVN (no on-time data) are Medium.
 5. **Rank stability:** 1,000 seeded Dirichlet re-weightings of the pillars around the defaults. The output reads like "BOS ranks #1 in 63% of scenarios". This shows how sensitive the ranking is to subjective weights.
 6. **What-if:** analysts can override pillar weights in chat ("weight growth twice as much").
 7. **Constraint flags** (legal caps, curfews, land, runway geometry) are shown **next to** the score, never folded into it. The analyst sees the trade-off instead of a hidden penalty.
@@ -136,6 +148,8 @@ Percentile composite:
 
 When a curated passenger cap exists, the tool also returns cap utilization (SNA is at about 91% of its 12.2M cap).
 
+**Confidence comes from the on-time sample.** It is High only when reporting carriers fly at least 60% of the airport's domestic departures; LAX and SNA are both around 90%. Peak-hour movements count those carriers only, so gateways with much foreign or cargo traffic (JFK, MIA, ANC) read lower than reality. This is stated as a caveat.
+
 ### 4.3 Route mix / long-haul share
 
 Departures are banded by segment great-circle distance:
@@ -153,7 +167,9 @@ Observed passengers are *constrained* demand. Per route-month:
 - Solve for `mu`.
 - Spill = `mu - observed`.
 
-The demand variability `cv` is a stated assumption (0.30). Results are also reported at 0.20 and 0.40, giving SFO a range of **0.9M-6.3M** spilled passengers a year around the 2.7M point estimate. Spill is converted to equivalent extra daily departures.
+The demand variability `cv` is a stated assumption (0.30). Results are also reported at 0.20 and 0.40, giving SFO a range of **0.9M-6.0M** spilled passengers a year around the 2.6M point estimate. Spill is converted to equivalent extra daily departures.
+
+The model is steep near 100% load factor: demand recovered from a nearly full flight is unbounded. Route-months above 95% load factor are therefore capped at 95%.
 
 The "why" combines:
 - constrained routes (load factor >= 85%)
@@ -176,7 +192,15 @@ The "why" combines:
 | Every number, score, rank, model | **Code** (`analytics/`) | Reproducible, testable, auditable |
 | Tables, charts, sources in the UI | **Code**, built directly from tool outputs | The LLM cannot misreport them |
 | Narrative, reasoning, assumptions, confidence wording | **LLM**, constrained by the system prompt | Clear communication |
-| Checking the narrative | **Code**: numeric grounding guardrail | Flags any number in the answer not found in tool outputs |
+| Checking the narrative | **Code**: numeric grounding guardrail | Flags any number in the answer not found in the tool results the model was shown |
+
+**How the grounding guardrail works, and its limits.**
+- Every number in the answer must match a value from the tool results the model was actually shown: this turn's results plus the history in its context.
+- Matching respects units. Only fraction fields, such as load factor or growth, may appear as a percentage. "2.7M" must match a count, and an explicit sign must match.
+- The user's own text never counts as evidence.
+- It is a set-membership check, so it catches invented or misread figures. In the eval it caught "NAS delay 11.9 min" when the data said 11.19.
+- What it cannot catch: a wrong number that happens to equal some other value in the evidence. Measured against a full New England ranking payload, a random percentage still passes about 20% of the time, down from about 75% before the unit rules.
+- It is a safety net that makes errors visible, not a proof of correctness. The real protection is architectural: the tables and charts come straight from code.
 
 **Agent runtime** (`agent/runtime.py`):
 1. Build context: system prompt with data periods, session focus airports, and trimmed history made of whole turns.
@@ -207,6 +231,7 @@ Sessions keep the history, so follow-ups like "what about Bangor?" or "weight gr
 | Terminal capacity | Proxied by load factor, peak-hour movements, taxi-out | Gates / square footage | Not public. Stated as the main limitation |
 | LLM | Free tier with failover + offline mode | Single paid model | Meets the brief's free-tier suggestion; resilient to rate limits during demos |
 | Number safety | Tool-only numbers + grounding check + UI built from tool data | Trust the LLM | Hallucinated statistics are unacceptable in investment analysis |
+| Missing data | Neutral (median) imputation + confidence from coverage | Re-normalize over available metrics | Re-normalizing rewards gaps (it put SJU at #1); neutral imputation is conservative and the gap stays visible |
 | Curated notes | Small cited YAML | RAG over documents | Five airports' constraints don't justify a vector store; the notes are auditable |
 
 ---
@@ -224,25 +249,38 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
 
 ## 8. Quality
 
-- **48 automated tests** (`make test`). No network or API key is needed.
-  - Analytics math checked against closed-form values
-  - Spill-model inversion
-  - Rank-stability determinism
-  - Tool-registry contract (unknown tool, malformed JSON, invalid arguments)
-  - Runtime loop with a scripted fake LLM (self-correction, follow-ups, step budget)
-  - Provider failover
-  - SSE API
-  - Integration tests on the real snapshot answering the four brief questions
-  - Offline mode
-- **Golden-question eval** (`make eval`): 11 turns across 5 multi-turn conversations, run against the real LLM (Gemini `gemini-3.5-flash-lite`). Each turn checks tool choice, numeric grounding and required content. Results are in `evals/report.md`.
-  - **Latest result: 10/11 pass, at 2-7 s per answer.**
-  - The remaining flag is a false positive: weights were written as "30/25/20/25" without a % sign.
-  - Iterating on the eval surfaced real issues, which were then fixed:
-    - The grounding check ignored earlier turns and tool arguments.
-    - Follow-ups re-derived numbers instead of re-running the tool (now a prompt rule).
-    - The guardrail caught a genuine model misread: "NAS delay 11.9 min" when the data says 11.19.
-- **Independent code review pass:** findings fixed with regression tests. They included failover on malformed tool arguments from another provider, a renamed airport code (PBI to DJT) splitting history across sources, and SSE CRLF chunk splitting.
-- **Ingest validation contracts:** required columns, row counts, non-negative values, anchor airports. A failed table keeps its last good snapshot.
+**Automated tests: 106 backend + 9 frontend** (`make test`, `npm test`). No network or API key is needed.
+- Analytics math checked against closed-form values: spill-model inversion, growth, load factor, fare premium.
+- Scoring on synthetic universes: neutral missing-data policy, confidence grades, weight overrides.
+- Connectors on synthetic files with mocked HTTP: retries, pagination, form-state changes, atomic downloads.
+- Ingest validation contracts and code reconciliation.
+- Entity resolution, including typos, ICAO codes and the refusal to guess unknown codes.
+- Agent runtime with a scripted fake LLM: self-correction after invalid arguments, follow-ups, step budget, per-turn provider stickiness.
+- Grounding guardrail: units, signs, ordinals, ranges, metric/value pairs.
+- Claude and OpenAI-compatible adapters, SSE API, offline mode.
+- Frontend SSE parser tested at every chunk split.
+
+**Golden-question eval** (`make eval`; `--hard` adds hard cases): 17 turns across 10 conversations, run against the real LLM (Gemini `gemini-3.5-flash-lite`).
+- Each turn checks that the expected tool was called, that every number is grounded, and that required content is present (or forbidden content absent).
+- Hard cases: multi-tool questions, ambiguity ("Portland"), data the system does not have (gate counts, construction costs), and a prompt-injection attempt.
+- **Latest full run: 15/17 at 2-15 s per answer.** Both flags were checker gaps, fixed and re-run 3/3:
+  - wind direction decoded from the raw METAR;
+  - the injection turn, which was correctly refused but quoted the user's "99".
+- Iterating on the eval also surfaced real issues:
+  - follow-ups re-derived numbers instead of re-running tools (now a prompt rule);
+  - the model computed a derived "96%" share itself (correctly flagged);
+  - a genuine misread, "NAS delay 11.9 min" when the data says 11.19 (caught).
+
+**Provider failover verified live:** with Gemini forced to fail, Claude (`claude-sonnet-5-5`) answered the same questions with every number grounded.
+
+**Two independent code-review rounds**, each finding fixed with a regression test. The most important:
+- **Security:** API keys were being copied into the Docker image; `.env` is now excluded.
+- **Data joins:** FAA and IATA codes differed, renamed airports split their history, and territories were missing.
+- **Scoring:** re-weighting rewarded data gaps; replaced by neutral imputation.
+- **Guardrail precision:** unit- and sign-aware matching.
+- **Robustness:** structural truncation of tool results, linear history trimming, per-session locks.
+
+**Ingest validation contracts:** required columns, row counts, non-negative values, anchor airports. A failed table keeps its last good snapshot.
 
 ## 9. With more time
 
