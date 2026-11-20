@@ -101,7 +101,9 @@ def confidence_overstated(
     named = [c for c in re.findall(r"\b[A-Z]{3}\b", statement) if c in (airport_confidences or {})]
     grades = [airport_confidences[c] for c in named] if named else tool_confidences
     known = [CONFIDENCE_LEVELS[c] for c in grades if c in CONFIDENCE_LEVELS]
-    return bool(known) and CONFIDENCE_LEVELS[stated.group(1).lower()] > min(known)
+    # "High for congestion; Medium for the spill model": the lowest level stated is what must hold.
+    stated_levels = [CONFIDENCE_LEVELS[x.lower()] for x in re.findall(r"\b(high|medium|low)\b", statement, re.I)]
+    return bool(known) and min(stated_levels) > min(known)
 
 
 def _collect(node: Any, out: list[Evidence], path: str = "") -> None:

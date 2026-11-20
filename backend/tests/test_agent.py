@@ -368,3 +368,10 @@ def test_cv_can_be_shown_as_percent():
         check_grounding("a 30% coefficient of variation", [{"data": {"cv_sensitivity": [{"cv": 0.3}]}}]).unverified
         == []
     )
+
+
+def test_confidence_statement_with_several_levels_uses_the_lowest():
+    from app.agent.guardrails import confidence_overstated
+
+    answer = "**Confidence:** High for congestion comparisons; Medium for unmet demand models."
+    assert not confidence_overstated(answer, ["high", "medium"])

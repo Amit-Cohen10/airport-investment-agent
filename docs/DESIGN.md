@@ -13,6 +13,8 @@ The firm earns its return when passenger growth fills new terminal capacity. A s
 4. **A revenue base large enough to pay back the investment** (scale, pricing power).
 5. **No hard constraint that blocks growth anyway.** Examples: a legal passenger cap, a runway bottleneck, no land.
 
+The output is a **screening priority for further diligence**, not an estimate of returns. The score shows where terminal pressure looks strongest in public data. It does not prove that the terminal (rather than runways, airspace or a legal cap) is the binding constraint, or that terminal investment would capture the demand. Every ranked airport therefore carries a **bottleneck check** (§4.1).
+
 **In scope**
 - US commercial-service airports.
 - Public, free data only.
@@ -20,7 +22,8 @@ The firm earns its return when passenger growth fills new terminal capacity. A s
 
 **Out of scope (stated in the UI and the answers)**
 - Construction costs, financing, and concession contracts.
-- Gate counts and terminal square footage. These are not public.
+- Gate counts and terminal square footage. These are published per airport in master plans (for example, SFO's Airport Development Plan has a gate analysis), but there is no standardized national API, so they are not integrated. They are the next diligence step.
+- Committed projects, airline commitments and who captures the incremental revenue.
 - Investment advice.
 
 ---
@@ -57,7 +60,7 @@ flowchart LR
   Live --> SVC
   SVC --> TOOLS[Tool registry<br/>Pydantic-validated]
   TOOLS <--> RT[Agent runtime loop]
-  RT <--> LLM[LLM chain<br/>Gemini -> Groq -> Claude -> offline]
+  RT <--> LLM[LLM chain<br/>Gemini -> Claude -> offline<br/>Groq optional]
   RT --> API[FastAPI SSE] --> UI[React chat + evidence panel]
 ```
 
@@ -127,9 +130,15 @@ Every number the agent shows carries its **source and period**.
    - The obvious alternative, re-normalizing weights over the metrics that exist, is a trap. A review caught it ranking San Juan #1 nationally: SJU has no fare data, so its revenue pillar became "scale only".
    - **Coverage** (the share of total weight backed by real data) sets the confidence grade: High >= 95%, Medium >= 70%, otherwise Low. Any material gap therefore caps an airport at Medium.
    - Examples: SJU (no fare data) and HVN (no on-time data) are Medium.
-5. **Rank stability:** 1,000 seeded Dirichlet re-weightings of the pillars around the defaults. The output reads like "BOS ranks #1 in 64% of scenarios". This shows how sensitive the ranking is to subjective weights.
+5. **Rank stability:** 1,000 seeded Dirichlet re-weightings of the pillars around the defaults. The output reads like "BOS ranks #1 in 64% of scenarios". This measures **sensitivity to the subjective weights only**. It is not a 64% probability of being the best investment.
 6. **What-if:** analysts can override pillar weights in chat ("weight growth twice as much").
 7. **Constraint flags** (legal caps, curfews, land, runway geometry) are shown **next to** the score, never folded into it. The analyst sees the trade-off instead of a hidden penalty.
+8. **Bottleneck check** (a deterministic heuristic, shown beside each ranked airport):
+   - `regulatory`: a curated passenger cap or curfew. Example: SNA.
+   - `airside risk`: a runway constraint in the curated notes, or NAS delay per arrival at the 80th percentile or above. Example: SFO. NAS delay mixes weather, volume and ATC, so this is a risk flag, not a diagnosis.
+   - `unconfirmed`: nothing found. Terminal pressure is plausible, but confirm gate utilization in the master plan.
+
+**Why a national peer set, including small airports?** The firm screens the whole US market, and a national percentile answers "how unusual is this airport?". Scale has its own metric (log enplanements), so a small regional airport cannot outrank a hub on scale. A hub-class peer set is a reasonable alternative; it is one config line.
 
 **Fare premium:** fit `log(fare) = a + b*log(distance)` across all US markets (passenger-weighted, last 4 quarters). An airport's premium is the passenger-weighted mean residual of its markets. A persistent premium signals scarce supply.
 
@@ -147,6 +156,8 @@ Percentile composite:
 | Cancellation rate | 10% |
 
 When a curated passenger cap exists, the tool also returns cap utilization (SNA is at about 91% of its 12.2M cap).
+
+NAS delay, as BTS defines it, mixes non-extreme weather, traffic volume, airport operations and ATC. It is the best public proxy for airfield and airspace shortfall, but it cannot isolate a terminal bottleneck.
 
 **Confidence comes from the on-time sample.** It is High only when reporting carriers fly at least 60% of the airport's domestic departures; LAX and SNA are both around 90%. Peak-hour movements count those carriers only, so gateways with much foreign or cargo traffic (JFK, MIA, ANC) read lower than reality. This is stated as a caveat.
 
@@ -169,7 +180,9 @@ Observed passengers are *constrained* demand. Per route-month:
 
 The demand variability `cv` is a stated assumption (0.30). Results are also reported at 0.20 and 0.40, giving SFO a range of **0.9M-6.0M** spilled passengers a year around the 2.6M point estimate. Spill is converted to equivalent extra daily departures.
 
-The model is steep near 100% load factor: demand recovered from a nearly full flight is unbounded. Route-months above 95% load factor are therefore capped at 95%.
+The model is steep near 100% load factor: demand recovered from a nearly full flight is unbounded. Route-months above 95% load factor are therefore capped at 95%. That cap is itself a consequential assumption.
+
+The cv range is a **sensitivity range, not a statistical confidence interval**. Aggregate route-month load factors cannot identify the true flight-level demand distribution, so spill is a **scenario estimate**.
 
 The "why" combines:
 - constrained routes (load factor >= 85%)
@@ -195,9 +208,22 @@ The "why" combines:
 | Checking the narrative | **Code**: numeric grounding guardrail | Flags any number in the answer not found in the tool results the model was shown |
 
 **How the grounding guardrail works, and its limits.**
-- Every number in the answer must match a value from the tool results the model was actually shown: this turn's results plus the history in its context.
-- Matching respects units. Only fraction fields, such as load factor or growth, may appear as a percentage. "2.7M" must match a count, and an explicit sign must match.
-- The user's own text never counts as evidence.
+- Every figure in the answer must match a value from the **successful** tool results the model was actually shown: this turn's results plus the history in its context.
+- These never count as evidence:
+  - failed results and error text;
+  - queries the tool echoes back;
+  - the user's own text;
+  - free-form tool arguments.
+
+  Only explicit what-if parameters of successful calls count, such as weights and thresholds.
+- Matching respects units:
+  - Only fraction fields, such as load factor or growth, may appear as a percentage.
+  - "12 percentage points" is read as a unit.
+  - "2.7M" must match a count.
+  - An explicit sign must match.
+- Small integers and years are exempt only in context: list markers or "top 3" for small integers; "in 2025" or "2019 levels" for years. So "SFO has 9 runways" or "2000 gates" is still checked.
+- A separate check flags answers that state a **higher confidence than the analyses returned**.
+- The UI wording reflects what the check is: "N figures match the data", or "No figures to check". It does not say "verified".
 - It is a set-membership check, so it catches invented or misread figures. In the eval it caught "NAS delay 11.9 min" when the data said 11.19.
 - What it cannot catch: a wrong number that happens to equal some other value in the evidence. Measured against a full New England ranking payload, a random percentage still passes about 20% of the time, down from about 75% before the unit rules.
 - It is a safety net that makes errors visible, not a proof of correctness. The real protection is architectural: the tables and charts come straight from code.
@@ -211,11 +237,16 @@ The "why" combines:
 6. Run the grounding check on the final answer.
 
 Sessions keep the history, so follow-ups like "what about Bangor?" or "weight growth more" work.
+- A follow-up answered from earlier results, with no new tool call, still shows that earlier evidence in the panel, labeled as coming from an earlier answer.
+- Only one turn runs per session at a time.
 
 **LLM provider chain:**
-- Gemini free tier (`gemini-3.5-flash-lite`), then Groq (`gpt-oss-120b`), then Claude.
+- Gemini free tier (`gemini-3.5-flash-lite`), then Claude, with Groq (`gpt-oss-120b`) optional if a key is set.
+- The Claude model is configurable. The default is `claude-opus-5-5`; the evaluation below ran with `claude-sonnet-5-5`, set in `.env`.
 - One OpenAI-compatible adapter plus an Anthropic adapter, with retry/backoff on 429/5xx and automatic failover.
-- **Offline planner (last in the chain):** if every LLM is unavailable, a keyword intent router runs the same tools and assembles the answer from tool summaries. The answer is labeled as offline mode. It degrades gracefully instead of failing.
+- **Offline planner (last in the chain):** if every LLM is unavailable, a keyword intent router runs the same tools and assembles the answer from tool summaries.
+  - The answer is labeled as offline mode. It degrades gracefully instead of failing.
+  - Follow-ups keep the previous analysis and its parameters ("weight growth twice as much", "what about Bangor?", "and at 4,000 miles?").
 
 ---
 
@@ -228,7 +259,7 @@ Sessions keep the history, so follow-ups like "what about Bangor?" or "weight gr
 | Normalization | Percentile ranks vs national peers | Min-max / z-scores | Robust to outliers and explainable. Cost: loses magnitude, so raw values are shown too |
 | Weights | Expert defaults + rank-stability analysis + what-if overrides | "Learned" weights | No ground truth of past investment returns to learn from; transparency beats false precision |
 | Constraints | Shown as flags beside the score | Penalty inside the score | Analysts must see *why*; a hidden penalty would be untraceable |
-| Terminal capacity | Proxied by load factor, peak-hour movements, taxi-out | Gates / square footage | Not public. Stated as the main limitation |
+| Terminal capacity | Proxied by load factor, peak-hour movements, taxi-out + a bottleneck check | Gates / square footage from master plans | Not available through a standardized national API; integrating per-airport plans is the next diligence step. Stated as the main limitation |
 | LLM | Free tier with failover + offline mode | Single paid model | Meets the brief's free-tier suggestion; resilient to rate limits during demos |
 | Number safety | Tool-only numbers + grounding check + UI built from tool data | Trust the LLM | Hallucinated statistics are unacceptable in investment analysis |
 | Missing data | Neutral (median) imputation + confidence from coverage | Re-normalize over available metrics | Re-normalizing rewards gaps (it put SJU at #1); neutral imputation is conservative and the gap stays visible |
@@ -249,56 +280,98 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
 
 ## 8. Quality
 
-**Automated tests: 106 backend + 9 frontend** (`make test`, `npm test`). No network or API key is needed.
+**Automated tests: 127 backend + 9 frontend** (`make test`, `npm test`). No network or API key is needed.
 - Analytics math checked against closed-form values: spill-model inversion, growth, load factor, fare premium.
-- Scoring on synthetic universes: neutral missing-data policy, confidence grades, weight overrides.
-- Connectors on synthetic files with mocked HTTP: retries, pagination, form-state changes, atomic downloads.
-- Ingest validation contracts and code reconciliation.
+- Scoring on synthetic universes: neutral missing-data policy, confidence grades, weight overrides, bottleneck check.
+- Connectors on synthetic files with mocked HTTP: retries, pagination, form-state changes, atomic downloads and snapshot writes.
+- Validation contracts: nulls, duplicate keys, missing or truncated months; growth suppressed on incomplete windows.
 - Entity resolution, including typos, ICAO codes and the refusal to guess unknown codes.
-- Agent runtime with a scripted fake LLM: self-correction after invalid arguments, follow-ups, step budget, per-turn provider stickiness.
-- Grounding guardrail: units, signs, ordinals, ranges, metric/value pairs.
-- Claude and OpenAI-compatible adapters, SSE API, offline mode.
+- Agent runtime with a scripted fake LLM:
+  - self-correction after invalid arguments;
+  - follow-ups, including evidence carried over from an earlier answer;
+  - step budget;
+  - per-turn provider stickiness;
+  - session-lock cleanup.
+- Grounding guardrail:
+  - units, signs, ordinals and ranges;
+  - echoed queries and errors never counting as evidence;
+  - contextual exemptions;
+  - overstated confidence.
+- Claude and OpenAI-compatible adapters, SSE API, live-status outage handling, offline follow-ups.
 - Frontend SSE parser tested at every chunk split.
 
-**Golden-question eval** (`make eval`; `--hard` adds hard cases): 17 turns across 10 conversations, run against the real LLM (Gemini `gemini-3.5-flash-lite`).
-- Each turn checks that the expected tool was called, that every number is grounded, and that required content is present (or forbidden content absent).
-- Hard cases: multi-tool questions, ambiguity ("Portland"), data the system does not have (gate counts, construction costs), and a prompt-injection attempt.
-- **Latest full run: 15/17 at 2-15 s per answer.** Both flags were checker gaps, fixed and re-run 3/3:
-  - wind direction decoded from the raw METAR;
-  - the injection turn, which was correctly refused but quoted the user's "99".
-- Iterating on the eval also surfaced real issues:
-  - follow-ups re-derived numbers instead of re-running tools (now a prompt rule);
-  - the model computed a derived "96%" share itself (correctly flagged);
-  - a genuine misread, "NAS delay 11.9 min" when the data says 11.19 (caught).
+**Golden-question eval** (`make eval`; `--hard` adds hard cases): 17 turns across 10 conversations against the real LLMs. Each turn checks:
+- the expected tool was called **successfully**, with the required arguments where set;
+- every figure matches a value from the analyses;
+- the stated confidence does not exceed the analyses';
+- required content is present;
+- for the injection case, no sentence asserts the injected number without a refusal.
+
+Hard cases cover multi-tool questions, ambiguity ("Portland"), data the system does not have (gate counts, construction costs), and a prompt-injection attempt. Passing means passing these checks: it is a regression suite for agent behavior, not proof of factual correctness.
 
 **Model comparison** (same 17 turns, same checks; `evals/report.md` and `evals/report_claude.md`):
 
 | | Gemini `gemini-3.5-flash-lite` (free tier) | Claude `claude-sonnet-5-5` (paid) |
 |---|---|---|
-| Turns passed | **17/17** | 15/17 |
-| Numbers grounded | 250/250 | 426/428 |
-| Avg latency | **3.7 s** | 10.0 s |
+| Turns passed | 16/17 | **17/17** |
+| Figures matching the data | 261/262 | 469/470 (the 1 is the user's injected "99", quoted in the refusal) |
+| Avg latency | **3.4 s** | 8.0 s |
 | Cost | free (rate-limited) | ~$0.05 per question |
-| Style | concise | more detailed (about 70% more figures per answer) |
+| Style | concise | more detailed (about 75% more figures per answer) |
 
-Both models handle multi-step tools, follow-ups, ambiguity, missing data and prompt injection. One of Claude's two flags is a genuine unit slip that the guardrail caught: it reported a 0.005 percentage-point gap as "0.5 pp". The other is a minor checker miss. **Decision:** Gemini is primary (faster, which matters for a live demo and voice, free, and it scored best), with Claude as the automatic backup.
+Notes on the run:
+- Gemini's saved full run shows 15/17. One of those flags was a checker gap: "High for congestion; Medium for the spill model" was read as High. It was fixed and that turn re-ran PASS.
+- The remaining Gemini flag is genuine but minor: 5.17% written as "5.1%" (truncated, not rounded).
+- Explicit units on every metric (`unit` field) removed Claude's earlier recurring slip, a 0.005 pp gap reported as "0.5 pp".
+- **Decision:** Gemini is primary (2-3x faster, which matters for a live demo and voice, and free for reviewers), with Claude as the automatic backup. Swapping the order is one env var (`LLM_PROVIDERS`) if answer depth matters more than speed.
+
+Iterating on the eval surfaced real issues:
+- Follow-ups re-derived numbers instead of re-running tools (now a prompt rule).
+- The model computed a derived "96%" share itself (flagged).
+- A misread was caught: "NAS delay 11.9 min" when the data says 11.19.
+- Live status was served stale from history (now always re-queried).
 
 **Provider failover verified live:** with Gemini forced to fail, Claude (`claude-sonnet-5-5`) answered the same questions with every number grounded.
 
-**Two independent code-review rounds**, each finding fixed with a regression test. The most important:
+**Three review rounds** (two independent code reviews, then an external review with Codex), each finding fixed with a regression test. The most important:
 - **Security:** API keys were being copied into the Docker image; `.env` is now excluded.
 - **Data joins:** FAA and IATA codes differed, renamed airports split their history, and territories were missing.
 - **Scoring:** re-weighting rewarded data gaps; replaced by neutral imputation.
 - **Guardrail precision:** unit- and sign-aware matching.
 - **Robustness:** structural truncation of tool results, linear history trimming, per-session locks.
+- **Evidence integrity:**
+  - Failed tool results and echoed queries can no longer "verify" a number.
+  - An FAA outage reads "unavailable", not "no programs".
+  - Incomplete months suppress growth instead of distorting it.
+- **Framing:** the score is a screening priority with a bottleneck check, not a return estimate.
 
-**Ingest validation contracts:** required columns, row counts, non-negative values, anchor airports. A failed table keeps its last good snapshot.
+**Ingest validation contracts:**
+- Checks: required columns, no nulls in required fields, unique keys, no missing or truncated months, anchor airports present in the latest month, row counts, non-negative values.
+- Growth is suppressed (scored neutral, lower coverage) when an airport's 12-month comparison windows are incomplete.
+- Snapshot and manifest writes are atomic (temp file plus swap), so a failed refresh really does keep the last good snapshot.
 
-## 9. With more time
+## 9. Known limitations (deliberately out of scope for a one-day build)
+
+**Investment economics are not modeled:**
+- construction costs;
+- committed projects;
+- airline commitments;
+- gate availability;
+- concession economics;
+- who captures the incremental revenue.
+
+**Deployment:**
+- There is no authentication, rate limiting or aggregate request budget.
+- A tool that exceeds its timeout stops being waited on, but its worker thread runs to completion.
+- SSE streams progress events and the finished answer, not tokens.
+
+**The eval is a regression suite for agent behavior**, covering tool choice, numeric matching, confidence consistency and selected content. It is not proof of factual correctness or of robust injection resistance.
+
+## 10. With more time
 
 - Scheduled ingest (Airflow/cron) with data-quality alerts.
 - Redis session store.
-- Gate and terminal capacity data from airport master plans (RAG over planning PDFs).
+- Gate and terminal capacity data from airport master plans (RAG over planning PDFs), to turn the bottleneck check from a heuristic into a measurement.
 - FAA TAF (Terminal Area Forecast) for forward-looking demand.
 - Backtest the score against past expansions.
 - Per-flight spill using schedule data.
