@@ -1,6 +1,6 @@
 """Claude adapter: translates canonical (OpenAI-format) messages to the Anthropic Messages API.
 
-Used as the paid backup behind the free Gemini tier (see factory.py). Current Claude models
+The default primary provider, with the free Gemini tier as automatic fallback (see factory.py). Current Claude models
 differ from OpenAI-style APIs in ways this adapter handles explicitly:
 
 * Thinking is always on (adaptive). Within one agent turn, the assistant's raw content blocks,

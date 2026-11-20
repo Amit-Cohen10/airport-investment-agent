@@ -115,6 +115,9 @@ EXPLICIT_CONFIDENCE = re.compile(
     re.I,
 )
 _LEVEL = re.compile(r"\b(high|medium|low)\b", re.I)
+_NEGATED_LEVEL = re.compile(
+    r"\b(?:not|never|no|isn't|aren't|wasn't)\W+(?:(?:a|an|very|as|that|so)\W+)?(?:high|medium|low)\b", re.I
+)
 _CLAUSE_SPLIT = re.compile(r"(;|,|\n|\bbut\b|\band\b)")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])[*_]*\s+|\n+")
 
@@ -160,7 +163,7 @@ def confidence_overstated(
         for i in range(0, len(parts), 2):
             clause = parts[i]
             joined_by = parts[i - 1] if i else ""
-            levels = [CONFIDENCE_LEVELS[x.lower()] for x in _LEVEL.findall(clause)]
+            levels = [CONFIDENCE_LEVELS[x.lower()] for x in _LEVEL.findall(_NEGATED_LEVEL.sub(" ", clause))]
             if not levels and joined_by in (",", "and") and _references(clause):
                 levels = carried  # "High for congestion and unmet demand": the level governs both
             elif levels:

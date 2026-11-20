@@ -533,3 +533,48 @@ class TestCodexRound3:
         assert "demand_momentum_weight=0.6" in build_messages("SYS", session, "Why BGR?", 50_000)[0]["content"]
         await runtime.run(sid, "Use the default weights", _noop)
         assert sessions.get_or_create(sid).scenario_weights == {}
+
+
+class TestCodexFinal:
+    def test_negated_level_is_not_a_claim(self):
+        from app.agent.guardrails import Grade, confidence_overstated
+
+        graded = [Grade("estimate_unmet_demand", "SFO", "medium")]
+        assert not confidence_overstated(
+            "Confidence: Medium. This is not a high-confidence forecast.", [], graded=graded
+        )
+        assert not confidence_overstated("Confidence: Medium, not High.", [], graded=graded)
+        assert confidence_overstated("Confidence: Medium. This is a high-confidence forecast.", [], graded=graded)
+
+    async def test_airport_with_no_earlier_result_gets_no_other_airports_evidence(self, service, fake_llm_factory):
+        llm = fake_llm_factory(
+            [
+                ("tools", [("get_airport_profile", {"airport": "SFO"})]),
+                ("text", "SFO profile."),
+                ("text", "BGR has 4 runways."),
+            ]
+        )
+        runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), InMemorySessionStore())
+        sid = (await runtime.run(None, "SFO?", _noop)).session_id
+        reply = (await runtime.run(sid, "And Bangor?", _noop)).to_dict()
+        assert reply["evidence"] == []
+
+
+async def test_asking_for_default_weights_ends_the_scenario_even_without_a_tool_call(service, fake_llm_factory):
+    from app.agent.context import build_messages
+
+    llm = fake_llm_factory(
+        [
+            ("tools", [("rank_expansion_candidates", {"region": "New England", "demand_momentum_weight": 0.6})]),
+            ("text", "Re-ranked."),
+            ("text", "Under the default weights BOS leads, as in the first ranking."),  # answered from history
+        ]
+    )
+    sessions = InMemorySessionStore()
+    runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), sessions)
+    sid = (await runtime.run(None, "Weight growth twice as much", _noop)).session_id
+    assert sessions.get_or_create(sid).scenario_weights
+    await runtime.run(sid, "Rank New England using the default weights", _noop)
+    session = sessions.get_or_create(sid)
+    assert session.scenario_weights == {}
+    assert "Active what-if scenario" not in build_messages("SYS", session, "Why BGR?", 50_000)[0]["content"]

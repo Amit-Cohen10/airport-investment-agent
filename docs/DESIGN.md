@@ -242,7 +242,7 @@ The "why" combines:
 6. Run the grounding check on the final answer.
 
 Sessions keep the history, so follow-ups like "what about Bangor?" or "weight growth more" work.
-- **A what-if scenario stays active.** The weights of the latest scoring call are session state, and the model is told to pass them again, for example in "Why does Bangor score so high?", until the user asks for the defaults. The offline planner does the same.
+- **A what-if scenario stays active.** The weights of the latest scoring call are session state, and the model is told to pass them again, for example in "Why does Bangor score so high?", until the user asks for the defaults; that request ends the scenario immediately. The offline planner does the same.
 - A follow-up answered from earlier results, with no new tool call, still shows that earlier evidence in the panel, labeled as coming from an earlier answer.
   - The evidence is chosen by the airports and analyses the answer names, then by matching figures, so a coincidental number in another airport's result does not count.
   - Qualitative follow-ups ("the SFO spill estimate is reliable") are tied to their evidence too, and their confidence is checked.
@@ -288,7 +288,7 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
 
 ## 8. Quality
 
-**Automated tests: 155 backend + 11 frontend** (`make test`, `npm test`). No network or API key is needed.
+**Automated tests: 160 backend + 11 frontend** (`make test`, `npm test`). No network or API key is needed.
 - Analytics math checked against closed-form values: spill-model inversion, growth, load factor, fare premium.
 - Scoring on synthetic universes: neutral missing-data policy, confidence grades, weight overrides, bottleneck check.
 - Connectors on synthetic files with mocked HTTP: retries, pagination, form-state changes, atomic downloads and snapshot writes.
@@ -334,7 +334,7 @@ Notes on the runs:
   - **Checker gaps**, each fixed with a regression test: a number that existed only in a field name (`rank_range_90`, now an explicit `rank_range_interval_pct`), explanatory sentences read as confidence claims, a bolded confidence line, a refusal list that missed "will not", and follow-ups that silently dropped the what-if scenario.
   - **Real model slips the guardrail is meant to catch:** derived numbers ("less than 1.2 million passengers of headroom", "over 120,000 spilled passengers each", the METAR "45"), a truncation ("~9" for 9.7), and a confidence level the model gave to curated notes. Prompt rules were added: grade only what the tools graded, refuse dictated figures explicitly, and keep an active what-if scenario.
 - Explicit units on every metric (`unit` field) removed Claude's earlier recurring slip, a 0.005 pp gap reported as "0.5 pp".
-- **Decision: Claude is primary, Gemini is the automatic backup.** Claude passed the current checks with fuller answers, and the free Gemini tier ran out of daily quota during this testing, which is exactly the risk to avoid in a live demo. The cost is latency (about 8 s vs 4 s per answer) and about $0.05 per question. A reviewer with only a free Gemini key still gets a working app, because providers without a key are skipped. Swapping the order is one env var (`LLM_PROVIDERS`). An exhausted provider is also skipped for 60 s, so later turns go straight to the backup instead of paying the retry delay each time.
+- **Decision: Claude is primary, Gemini is the automatic backup.** Claude passed 16 of 17 current checks (the one failure is a real slip the guardrail caught) with fuller answers, and the free Gemini tier ran out of daily quota during this testing, which is exactly the risk to avoid in a live demo. The cost is latency (about 8 s vs 4 s per answer) and about $0.05 per question. A reviewer with only a free Gemini key still gets a working app, because providers without a key are skipped. Swapping the order is one env var (`LLM_PROVIDERS`). An exhausted provider is also skipped for 60 s, so later turns go straight to the backup instead of paying the retry delay each time.
 
 Iterating on the eval surfaced real issues:
 - Follow-ups re-derived numbers instead of re-running tools (now a prompt rule).
@@ -344,7 +344,7 @@ Iterating on the eval surfaced real issues:
 
 **Provider failover verified live:** with Gemini forced to fail, Claude (`claude-sonnet-5-5`) answered the same questions with every number grounded.
 
-**Five review rounds** (two independent code reviews, then three external reviews with Codex: a full review and two verification re-reviews), each finding fixed with a regression test. The most important:
+**Six review rounds** (two independent code reviews, then four external reviews with Codex: a full review, two verification re-reviews and a final pre-submission check of the zip), each finding fixed with a regression test. The most important:
 - **Security:** API keys were being copied into the Docker image; `.env` is now excluded.
 - **Data joins:** FAA and IATA codes differed, renamed airports split their history, and territories were missing.
 - **Scoring:** re-weighting rewarded data gaps; replaced by neutral imputation.
@@ -368,6 +368,7 @@ Iterating on the eval surfaced real issues:
   - Earlier evidence is chosen by airport and analysis, not by coincidental numbers, including for qualitative follow-ups.
   - The injection check handles coordinated clauses ("I will not make up data and BOS has a score of 99" is an assertion) and introduced quotations ("I cannot assert the following: ..." is not).
   - Scored airports such as USA (Concord-Padgett) always render as airport codes.
+- **Final pre-submission check (Codex #4, run on the zip):** an explicit request for the default weights now ends the what-if scenario, in the runtime (even when the model answers from history) and in the offline planner; a named airport with no earlier result gets no other airport's evidence; a negated level ("not a high-confidence forecast") is not a confidence claim.
 
 **Ingest validation contracts:**
 - Checks: required columns, no nulls in required fields, unique keys, no missing or truncated months, anchor airports present in the latest month, row counts, non-negative values.

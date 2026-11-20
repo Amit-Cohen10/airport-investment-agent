@@ -43,7 +43,7 @@ With **no key at all**, the app still works in **offline mode**: a deterministic
 ### Other commands
 
 ```bash
-make test      # 155 backend tests, no network or API key needed (frontend: cd frontend && npm test)
+make test      # 160 backend tests, no network or API key needed (frontend: cd frontend && npm test)
 make eval      # golden questions against the real LLM -> evals/report.md
 make ingest    # refresh the data snapshot from public sources (~10 min, ~400 MB download)
 ```

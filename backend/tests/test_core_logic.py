@@ -511,3 +511,52 @@ async def test_offline_score_explanation_keeps_active_scenario(service):
     assert any(
         "67.4" in str(e.get("summary")) or "67.4" in json.dumps(e.get("data")) for e in reply.to_dict()["evidence"]
     )
+
+
+async def test_offline_default_weights_request_ends_the_scenario(service):
+    """Codex final review: an explicit request for the default weights must cancel the what-if scenario."""
+    from app.agent.runtime import AgentRuntime
+    from app.agent.tools.definitions import build_tools
+    from app.agent.tools.registry import ToolRegistry
+
+    rt = AgentRuntime(
+        OfflinePlanner(service.directory.find_in_text), ToolRegistry(service, build_tools()), InMemorySessionStore()
+    )
+
+    def call(reply):
+        return [s for s in reply.trace["steps"] if s["type"] == "tool"][0]
+
+    def text(reply):
+        return json.dumps(reply.to_dict()["evidence"])
+
+    first = await rt.run(None, "Which airports in New England are strong candidates for terminal expansion?")
+    sid = first.session_id
+    assert "top: BOS (66)" in text(first)
+    await rt.run(sid, "What if we weight demand growth twice as much?")
+    scenario = await rt.run(sid, "Why does Bangor score so high?")
+    assert call(scenario)["arguments"]["demand_momentum_weight"] == 0.6 and "67.4" in text(scenario)
+
+    reset = await rt.run(sid, "Rank New England using the default weights")
+    assert call(reset)["tool"] == "rank_expansion_candidates"
+    assert not any(k.endswith("_weight") for k in call(reset)["arguments"])
+    assert "top: BOS (66)" in text(reset)
+    default = await rt.run(sid, "Why does Bangor score so high?")
+    assert call(default)["arguments"] == {"airport": "BGR"}
+    assert "63.3" in text(default) and "#35" in text(default)
+
+
+async def test_offline_use_default_weights_reruns_the_last_scoring_analysis(service):
+    from app.agent.runtime import AgentRuntime
+    from app.agent.tools.definitions import build_tools
+    from app.agent.tools.registry import ToolRegistry
+
+    rt = AgentRuntime(
+        OfflinePlanner(service.directory.find_in_text), ToolRegistry(service, build_tools()), InMemorySessionStore()
+    )
+    sid = (await rt.run(None, "Which airports in New England are strong candidates?")).session_id
+    await rt.run(sid, "Weight growth twice as much")
+    reply = await rt.run(sid, "Use the default weights")
+    call = [s for s in reply.trace["steps"] if s["type"] == "tool"][0]
+    assert call["tool"] == "rank_expansion_candidates"
+    assert call["arguments"]["region"].lower() == "new england"
+    assert not any(k.endswith("_weight") for k in call["arguments"])

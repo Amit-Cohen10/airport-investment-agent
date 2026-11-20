@@ -6,6 +6,7 @@ In-memory implementation behind a small protocol. In production this would be Re
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections import OrderedDict
@@ -13,6 +14,13 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 MAX_TURNS = 30
+# A request for the default weights ends a what-if scenario: "use the default weights", "rank New England
+# with the original weighting", "reset the scenario".
+RESET_WEIGHTS = re.compile(
+    r"\b(default|original|standard|baseline|normal)\b.{0,30}\b(weight|weights|weighting|scenario)\b"
+    r"|\breset\b.{0,30}\b(weight|weights|weighting|scenario)\b|\b(weights?|weighting|scenario)\b.{0,20}\breset\b",
+    re.I,
+)
 
 
 @dataclass

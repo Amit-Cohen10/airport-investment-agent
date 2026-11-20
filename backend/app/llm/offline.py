@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from app.agent.session_store import RESET_WEIGHTS
 from app.llm.base import AssistantTurn, ToolCall
 
 INTENTS: list[tuple[str, re.Pattern[str]]] = [
@@ -107,7 +108,20 @@ class OfflinePlanner:
             codes = [c.strip() for c in focus.group(1).split(",")][-2:][::-1] if focus else []  # most recent first
         intent = next((name for name, pattern in INTENTS if pattern.search(question)), None)
         threshold = _threshold_mi(question)
-        what_if_weights = bool(WEIGHT_WHAT_IF.search(question))
+        # An explicit request for the default weights ends the what-if scenario: no overrides are sent,
+        # and the runtime then records the default (empty) scenario for the session.
+        reset = bool(RESET_WEIGHTS.search(question))
+        what_if_weights = bool(WEIGHT_WHAT_IF.search(question)) and not reset
+        scenario = {} if reset else _scenario(system_prompt)
+        if (
+            reset
+            and last
+            and last[0] in ("rank_expansion_candidates", "explain_airport_score")
+            and not region
+            and not named_airport
+        ):
+            # "Use the default weights": re-run the previous scoring analysis without the overrides.
+            return [(last[0], {k: v for k, v in last[1].items() if not k.endswith("_weight")})]
 
         # 1. Explicit parameter changes to the previous analysis come first ("weight growth twice as much",
         #    "and at 4,000 miles?"): re-run the same tool with the same scope and the new parameter.
@@ -122,7 +136,7 @@ class OfflinePlanner:
                 return [(name, {"airports": codes[:6]})]
             if name in ("rank_expansion_candidates", "explain_airport_score"):
                 # Keep the scenario: a what-if weighting set earlier still applies to the explanation.
-                weights = {k: v for k, v in args.items() if k.endswith("_weight")}
+                weights = {} if reset else {k: v for k, v in args.items() if k.endswith("_weight")}
                 return [("explain_airport_score", {"airport": codes[0], **weights})]
             if "airport" in args:
                 return [(name, {**args, "airport": codes[0]})]
@@ -132,7 +146,7 @@ class OfflinePlanner:
             return [(intent, {"topic": topic})]
         if intent == "rank_expansion_candidates" or what_if_weights or (region and intent is None):
             rank_args: dict[str, Any] = {"region": region} if region else {"airports": codes} if codes else {}
-            rank_args |= _scenario(system_prompt)  # an active what-if scenario carries over
+            rank_args |= scenario  # an active what-if scenario carries over, unless the user reset it
             if what_if_weights:
                 rank_args["demand_momentum_weight"] = 0.6
             return [("rank_expansion_candidates", rank_args)]
@@ -143,7 +157,7 @@ class OfflinePlanner:
         if intent == "analyze_route_mix":
             return [(intent, {"airport": codes[0], **({"long_haul_threshold_mi": threshold} if threshold else {})})]
         if intent == "explain_airport_score":
-            return [(intent, {"airport": codes[0], **_scenario(system_prompt)})]
+            return [(intent, {"airport": codes[0], **scenario})]
         if intent in ("estimate_unmet_demand", "get_live_status"):
             return [(intent, {"airport": codes[0]})]
         return [("get_airport_profile", {"airport": c}) for c in codes[:3]]

@@ -24,7 +24,7 @@ from typing import Any
 
 from app.agent.context import build_messages, render_system_prompt, tool_message
 from app.agent.guardrails import CLAUSE_TOPICS, Grade, check_grounding, confidence_overstated
-from app.agent.session_store import Session, SessionStore
+from app.agent.session_store import RESET_WEIGHTS, Session, SessionStore
 from app.agent.tools.registry import ToolRegistry
 from app.domain.models import ToolResult
 from app.llm.base import AssistantTurn, LLMClient, LLMError
@@ -128,6 +128,8 @@ class AgentRuntime:
         self.max_steps = max_steps
         self.history_max_chars = history_max_chars
         self.tool_timeout_s = tool_timeout_s
+        directory = getattr(getattr(registry, "service", None), "directory", None)
+        self._airport_codes: set[str] = set(directory.df.index) if directory is not None else set()
         # Weak values: a session's lock disappears once no request holds or awaits it, so the map
         # never outgrows the live sessions (waiting requests keep a strong reference).
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
@@ -150,6 +152,10 @@ class AgentRuntime:
         # (expired or restarted): the UI tells the user the context was reset.
         await emit({"type": "session", "session_id": session.id, "resumed": session.resumed or requested_id is None})
         llm = self.llm.for_turn() if hasattr(self.llm, "for_turn") else self.llm
+        if RESET_WEIGHTS.search(user_text):
+            # The user asked for the default weights: the scenario ends now, whether or not the model
+            # re-runs a tool (it may answer from the default result it already has).
+            session.scenario_weights = {}
         messages = build_messages(self._system_prompt(), session, user_text, self.history_max_chars)
         new_messages: list[dict[str, Any]] = [messages[-1]]  # appended to the session at the end
         evidence: list[ToolResult] = []
@@ -214,7 +220,7 @@ class AgentRuntime:
         shown = evidence
         from_earlier = False
         if not evidence:
-            shown = _supporting_results(answer, session.evidence_history)
+            shown = _supporting_results(answer, session.evidence_history, self._airport_codes)
             from_earlier = bool(shown)
         # Confidence claims are checked against the evidence the answer rests on (this turn's or carried),
         # graded per analysis and per airport.
@@ -283,7 +289,9 @@ class AgentRuntime:
 EVIDENCE_HISTORY = 12
 
 
-def _supporting_results(answer: str, history: list[ToolResult], limit: int = 3) -> list[ToolResult]:
+def _supporting_results(
+    answer: str, history: list[ToolResult], known_airports: set[str] | None = None, limit: int = 3
+) -> list[ToolResult]:
     """Earlier results the answer rests on.
 
     When the answer names airports, only results about those airports qualify (a coincidental figure in
@@ -291,7 +299,11 @@ def _supporting_results(answer: str, history: list[ToolResult], limit: int = 3) 
     analysis it names; most matched figures first, then most recent.
     """
     named = set(re.findall(r"\b[A-Z]{3}\b", answer))
+    if known_airports:
+        named &= known_airports  # TTM, NAS, VFR... are not airports
     about = [r for r in history if named & set(_airports_in(r.data))]
+    if named and not about:
+        return []  # the answer is about airports no earlier result covered: nothing else supports it
     pool = about or history
     topics = {t for t, pattern in CLAUSE_TOPICS.items() if pattern.search(answer)}
     scored = []
