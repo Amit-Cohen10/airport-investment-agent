@@ -23,6 +23,7 @@ NUMBER = re.compile(
 )
 
 
+COMPOUND_TAIL = re.compile(r"-[A-Za-z]")
 RANGE_TAIL = re.compile(
     r"\s?[-–]\s?\d[\d,]*(?:\.\d+)?\s?(?P<unit>%|pp(?![a-z])|percent(?![a-z])|million|billion|thousand|[kKmMbB](?![a-zA-Z]))"
 )
@@ -135,6 +136,8 @@ def check_grounding(answer: str, tool_payloads: list[Any]) -> GroundingReport:
         is_year = "," not in m.group("num") and 1900 <= value <= 2100
         if not unit and not dec and (is_year or value <= 10):
             continue  # years, small counts/ordinals ("top 3", "4 pillars")
+        if not unit and COMPOUND_TAIL.match(answer, m.end()):
+            continue  # descriptors inside compound words ("trailing-12-month", "1,000-scenario"), not statistics
         sign = m.group("sign")
         if sign in ("-", "\u2212"):
             value = -value

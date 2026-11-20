@@ -263,7 +263,7 @@ class InsightService:
         cong = self.congestion_scores
         data = {
             "airport": self.directory.describe(code),
-            "runways_4000ft_plus": f["runways"],
+            "runways": {"count": f["runways"], "counted_if_paved_and_at_least_ft": 4000},
             "enplanements": {
                 "latest_cy": f["enplanements_latest"],
                 "prev_cy": f["enplanements_prev"],

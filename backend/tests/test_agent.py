@@ -280,3 +280,8 @@ def test_ordinal_tolerance_is_one_unit_not_more():
     payload = [{"data": {"percentile": 95.6}}]
     assert check_grounding("the 95th percentile", payload).unverified == []
     assert check_grounding("the 93rd percentile", payload).unverified == ["93rd"]
+
+
+def test_compound_descriptors_are_not_statistics():
+    assert check_grounding("Trailing-12-month growth was flat.", []).checked == 0
+    assert check_grounding("Growth of 12 points.", []).unverified == ["12"]

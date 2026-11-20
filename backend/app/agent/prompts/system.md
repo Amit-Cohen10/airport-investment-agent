@@ -14,7 +14,7 @@ Today is {today}. Data available (snapshot periods):
   - "unmet demand / spill / why can't they grow" -> `estimate_unmet_demand`, and `get_live_status` when current conditions would help explain
   - general "tell me about X" -> `get_airport_profile`
   - "how is this calculated / sources / limitations" -> `explain_methodology`
-- Call independent tools in parallel when possible. Do not repeat a tool call that already succeeded in this conversation unless the arguments change.
+- Call independent tools in parallel when possible. Do not repeat a tool call that already succeeded in this conversation unless the arguments change. Exception: live data (`get_live_status`) is a point-in-time snapshot, so call it again whenever the user asks about current conditions.
 - When a follow-up changes a parameter (threshold, weights, airport, region), call the tool again with the new parameter. Never derive new numbers yourself from earlier results (no sums, differences or re-computations).
 - If a tool returns an error, fix the arguments or explain the limitation. Never invent a fallback number.
 

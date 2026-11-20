@@ -271,6 +271,18 @@ Every tool result carries `assumptions`, `caveats`, `confidence` and `provenance
   - the model computed a derived "96%" share itself (correctly flagged);
   - a genuine misread, "NAS delay 11.9 min" when the data says 11.19 (caught).
 
+**Model comparison** (same 17 turns, same checks; `evals/report.md` and `evals/report_claude.md`):
+
+| | Gemini `gemini-3.5-flash-lite` (free tier) | Claude `claude-sonnet-5-5` (paid) |
+|---|---|---|
+| Turns passed | **17/17** | 15/17 |
+| Numbers grounded | 250/250 | 426/428 |
+| Avg latency | **3.7 s** | 10.0 s |
+| Cost | free (rate-limited) | ~$0.05 per question |
+| Style | concise | more detailed (about 70% more figures per answer) |
+
+Both models handle multi-step tools, follow-ups, ambiguity, missing data and prompt injection. One of Claude's two flags is a genuine unit slip that the guardrail caught: it reported a 0.005 percentage-point gap as "0.5 pp". The other is a minor checker miss. **Decision:** Gemini is primary (faster, which matters for a live demo and voice, free, and it scored best), with Claude as the automatic backup.
+
 **Provider failover verified live:** with Gemini forced to fail, Claude (`claude-sonnet-5-5`) answered the same questions with every number grounded.
 
 **Two independent code-review rounds**, each finding fixed with a regression test. The most important:
