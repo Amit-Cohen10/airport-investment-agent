@@ -1,0 +1,53 @@
+{
+  "tables": {
+    "airports": {
+      "source": "OurAirports open data",
+      "url": "https://ourairports.com/data/",
+      "period": "as of Nov 2026",
+      "rows": 1945,
+      "fetched_at": "2026-11-20T07:45:20Z",
+      "status": "ok"
+    },
+    "enplanements": {
+      "source": "FAA Passenger Boarding (Enplanement) Data",
+      "url": "https://www.faa.gov/airports/planning_capacity/passenger_allcargo_stats/passenger",
+      "period": "CY2018-CY2025 (CY2025 preliminary)",
+      "rows": 3080,
+      "fetched_at": "2026-11-20T07:45:23Z",
+      "status": "ok"
+    },
+    "t100_monthly": {
+      "source": "BTS T-100 Segment Summary by Origin Airport",
+      "url": "https://data.bts.gov/d/r495-tyji",
+      "period": "Jan 2019 - Aug 2026",
+      "rows": 83338,
+      "fetched_at": "2026-11-20T07:45:48Z",
+      "status": "ok"
+    },
+    "t100_segments": {
+      "source": "BTS T-100 Segment (all carriers, incl. foreign & cargo)",
+      "url": "https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FMG&QO_fu146_anzr=Nv4%20Pn44vr45",
+      "period": "Jan 2025 - Aug 2026",
+      "rows": 400216,
+      "fetched_at": "2026-11-20T07:46:45Z",
+      "status": "ok"
+    },
+    "airfare_markets": {
+      "source": "BTS Consumer Airfare Report (Table 1a, airport-pair markets)",
+      "url": "https://datahub.transportation.gov/d/tfrh-tu9e",
+      "period": "2023 Q1 - 2026 Q1",
+      "rows": 25825,
+      "fetched_at": "2026-11-20T07:46:50Z",
+      "status": "ok"
+    },
+    "ontime_monthly": {
+      "source": "BTS Airline On-Time Performance (reporting carriers)",
+      "url": "https://www.transtats.bts.gov/Tables.asp?QO_VQ=EFD",
+      "period": "Oct 2025 - Sep 2026",
+      "rows": 4152,
+      "fetched_at": "2026-11-20T07:47:09Z",
+      "status": "ok"
+    }
+  },
+  "generated_at": "2026-11-20T07:47:09Z"
+}

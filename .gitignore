@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+# Secrets
+.env
+!.env.example
+# Raw downloads (large; the processed snapshot in backend/data/snapshot is committed)
+backend/data/raw/
+backend/data/cache/
+# Node
+node_modules/
+frontend/dist/
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+# Build artifacts
+*.zip
