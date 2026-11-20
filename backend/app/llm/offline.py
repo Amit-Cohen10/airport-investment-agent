@@ -17,7 +17,7 @@ from typing import Any
 from app.llm.base import AssistantTurn, ToolCall
 
 INTENTS: list[tuple[str, re.Pattern[str]]] = [
-    ("explain_methodology", re.compile(r"\b(how (is|are|do)|methodolog|calculat|formula|weights?)\b", re.I)),
+    ("explain_methodology", re.compile(r"\b(how (is|are|do)|methodolog|calculat|formula)\b", re.I)),
     ("estimate_unmet_demand", re.compile(r"\b(unmet|spill|pent[- ]up|latent|turned away)\b", re.I)),
     ("analyze_route_mix", re.compile(r"\b(long[- ]?haul|route mix|distance|short[- ]?haul)\b", re.I)),
     ("compare_congestion", re.compile(r"\b(congest|delay|crowd|busy|bottleneck)", re.I)),
@@ -25,6 +25,31 @@ INTENTS: list[tuple[str, re.Pattern[str]]] = [
     ("rank_expansion_candidates", re.compile(r"\b(candidate|expan|rank|best|top|invest|opportunit)", re.I)),
     ("explain_airport_score", re.compile(r"\bwhy\b.*\b(score|rank|high|low)", re.I)),
 ]
+
+WEIGHT_WHAT_IF = re.compile(
+    r"\b(weight|emphasi[sz]e|prioriti[sz]e|value)\b.*\b(growth|demand)\b|\b(growth|demand)\b.*\b(more|higher|double|twice)\b",
+    re.I,
+)
+THRESHOLD = re.compile(r"\b(\d{1,2},?\d{3})\s*-?\s*(?:mi\b|miles?\b|mile\b)", re.I)
+
+
+def _threshold_mi(text: str) -> float | None:
+    m = THRESHOLD.search(text)
+    return float(m.group(1).replace(",", "")) if m else None
+
+
+def _last_analysis(history: list[dict[str, Any]]) -> tuple[str, dict[str, Any]] | None:
+    """The most recent analysis tool call in earlier turns (resolution calls don't count)."""
+    for msg in reversed(history):
+        for call in reversed(msg.get("tool_calls") or []):
+            name = call["function"]["name"]
+            if name != "resolve_airports":
+                try:
+                    return name, json.loads(call["function"].get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    return None
+    return None
+
 
 # Resolver returns (airport codes, region name or None) found in free text.
 Resolver = Callable[[str], tuple[list[str], str | None]]
@@ -43,7 +68,7 @@ class OfflinePlanner:
         if tool_msgs or not tools:
             return self._answer(tool_msgs)
         question = messages[last_user]["content"]
-        calls = self._plan(question, messages[0].get("content", ""))
+        calls = self._plan(question, messages[0].get("content", ""), _last_analysis(messages[:last_user]))
         if not calls:
             return self._text(
                 "_Offline mode (LLM unavailable)._ I could not map this question to an analysis. Try e.g. "
@@ -60,25 +85,49 @@ class OfflinePlanner:
         }
         return AssistantTurn(content=None, tool_calls=tool_calls, message=message, provider=self.name, model=self.model)
 
-    def _plan(self, question: str, system_prompt: str) -> list[tuple[str, dict[str, Any]]]:
+    def _plan(
+        self, question: str, system_prompt: str, last: tuple[str, dict[str, Any]] | None = None
+    ) -> list[tuple[str, dict[str, Any]]]:
         codes, region = self.resolve(question)
+        named_airport = bool(codes)
         if not codes and not region:  # follow-up: reuse airports from the session state
             focus = re.search(r"Airports discussed so far[^:]*: ([A-Z, ]+)\.", system_prompt)
             codes = [c.strip() for c in focus.group(1).split(",")][-2:][::-1] if focus else []  # most recent first
         intent = next((name for name, pattern in INTENTS if pattern.search(question)), None)
+        threshold = _threshold_mi(question)
+        what_if_weights = bool(WEIGHT_WHAT_IF.search(question))
+
+        # 1. Explicit parameter changes to the previous analysis come first ("weight growth twice as much",
+        #    "and at 4,000 miles?"): re-run the same tool with the same scope and the new parameter.
+        if last and what_if_weights and last[0] == "rank_expansion_candidates":
+            return [(last[0], {**last[1], "demand_momentum_weight": 0.6})]
+        if last and threshold and last[0] == "analyze_route_mix" and intent in (None, "analyze_route_mix"):
+            return [(last[0], {**last[1], "long_haul_threshold_mi": threshold})]
+        # 2. "What about Bangor?": same analysis as before, for the newly named airport.
+        if last and named_airport and intent is None and not region:
+            name, args = last
+            if name == "compare_congestion":
+                return [(name, {"airports": codes[:6]})]
+            if name in ("rank_expansion_candidates", "explain_airport_score"):
+                return [("explain_airport_score", {"airport": codes[0]})]
+            if "airport" in args:
+                return [(name, {**args, "airport": codes[0]})]
+        # 3. Fresh questions, by keyword intent.
         if intent == "explain_methodology":
             topic = "unmet_demand" if "spill" in question.lower() or "unmet" in question.lower() else "expansion_score"
             return [(intent, {"topic": topic})]
-        if intent == "rank_expansion_candidates" or (region and intent is None):
-            args: dict[str, Any] = {"region": region} if region else {"airports": codes} if codes else {}
-            if re.search(r"\b(growth|demand)\b.*\b(more|higher|double|twice)", question, re.I):
-                args["demand_momentum_weight"] = 0.6
-            return [("rank_expansion_candidates", args)]
+        if intent == "rank_expansion_candidates" or what_if_weights or (region and intent is None):
+            rank_args: dict[str, Any] = {"region": region} if region else {"airports": codes} if codes else {}
+            if what_if_weights:
+                rank_args["demand_momentum_weight"] = 0.6
+            return [("rank_expansion_candidates", rank_args)]
         if not codes:
             return []
         if intent == "compare_congestion":
             return [(intent, {"airports": codes[:6]})]
-        if intent in ("estimate_unmet_demand", "analyze_route_mix", "get_live_status", "explain_airport_score"):
+        if intent == "analyze_route_mix":
+            return [(intent, {"airport": codes[0], **({"long_haul_threshold_mi": threshold} if threshold else {})})]
+        if intent in ("estimate_unmet_demand", "get_live_status", "explain_airport_score"):
             return [(intent, {"airport": codes[0]})]
         return [("get_airport_profile", {"airport": c}) for c in codes[:3]]
 

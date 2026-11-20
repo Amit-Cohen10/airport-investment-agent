@@ -441,3 +441,27 @@ def test_anthropic_replays_only_current_turn_blocks_and_drops_temperature():
 def test_other_providers_never_see_anthropic_blocks():
     msgs = [{"role": "assistant", "content": "a", "anthropic_blocks": [{"type": "thinking"}]}]
     assert "anthropic_blocks" not in OpenAICompatClient("gemini", "k", "m")._sanitize(msgs)[0]
+
+
+async def test_offline_follow_ups_keep_the_previous_analysis(service):
+    from app.agent.runtime import AgentRuntime
+    from app.agent.tools.definitions import build_tools
+    from app.agent.tools.registry import ToolRegistry
+
+    rt = AgentRuntime(
+        OfflinePlanner(service.directory.find_in_text), ToolRegistry(service, build_tools()), InMemorySessionStore()
+    )
+
+    async def tools_for(question, sid):
+        reply = await rt.run(sid, question)
+        return reply.session_id, [(s["tool"], s["arguments"]) for s in reply.trace["steps"] if s["type"] == "tool"]
+
+    sid, calls = await tools_for("Which airports in New England are strong candidates?", None)
+    assert calls[0][0] == "rank_expansion_candidates"
+    _, calls = await tools_for("Weight growth twice as much", sid)
+    assert calls == [("rank_expansion_candidates", {"region": "new england", "demand_momentum_weight": 0.6})]
+    _, calls = await tools_for("What about Bangor?", sid)
+    assert calls == [("explain_airport_score", {"airport": "BGR"})]
+    sid2, _ = await tools_for("What share of flights out of Anchorage are long haul?", None)
+    _, calls = await tools_for("And at 4,000 miles?", sid2)
+    assert calls == [("analyze_route_mix", {"airport": "ANC", "long_haul_threshold_mi": 4000.0})]

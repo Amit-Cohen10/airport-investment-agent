@@ -5,6 +5,7 @@ import { Block } from './blocks/Blocks'
 import { toolLabel } from './labels'
 
 type Tab = 'evidence' | 'sources' | 'trace'
+const TABS: Tab[] = ['evidence', 'sources', 'trace']
 
 const CONFIDENCE_STYLE: Record<string, string> = {
   high: 'bg-teal-50 text-teal-700',
@@ -33,19 +34,45 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex gap-1 border-b border-slate-200 px-4 pt-3">
-        <TabButton active={tab === 'evidence'} onClick={() => setTab('evidence')} icon={<BarChart3 className="h-4 w-4" />}>
+      <div
+        className="flex gap-1 border-b border-slate-200 px-4 pt-3"
+        role="tablist"
+        aria-label="Answer details"
+        onKeyDown={(e) => {
+          // WAI-ARIA tabs pattern: arrow keys move between tabs.
+          const i = TABS.indexOf(tab)
+          if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            e.preventDefault()
+            const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]
+            setTab(next)
+            document.getElementById(`tab-${next}`)?.focus()
+          }
+        }}
+      >
+        <TabButton id="evidence" active={tab === 'evidence'} onClick={() => setTab('evidence')} icon={<BarChart3 className="h-4 w-4" />}>
           Evidence
         </TabButton>
-        <TabButton active={tab === 'sources'} onClick={() => setTab('sources')} icon={<BookOpen className="h-4 w-4" />}>
+        <TabButton id="sources" active={tab === 'sources'} onClick={() => setTab('sources')} icon={<BookOpen className="h-4 w-4" />}>
           Sources & assumptions
         </TabButton>
-        <TabButton active={tab === 'trace'} onClick={() => setTab('trace')} icon={<ListTree className="h-4 w-4" />}>
+        <TabButton id="trace" active={tab === 'trace'} onClick={() => setTab('trace')} icon={<ListTree className="h-4 w-4" />}>
           Trace
         </TabButton>
       </div>
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 scroll-thin">
+      <div
+        className="flex-1 space-y-5 overflow-y-auto px-4 py-4 scroll-thin"
+        role="tabpanel"
+        id={`panel-${tab}`}
+        aria-labelledby={`tab-${tab}`}
+        tabIndex={0}
+      >
+        {answer.evidence_from_earlier_turn && (
+          <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">
+            This answer reused results from earlier in the conversation; the evidence below is from that earlier
+            analysis, with its original data periods.
+          </p>
+        )}
         {tab === 'evidence' &&
           (answer.evidence.length === 0 ? (
             <p className="text-sm text-slate-500">No analyses were run for this answer.</p>
@@ -138,10 +165,21 @@ export function EvidencePanel({ answer }: { answer: AgentAnswer | null }) {
   )
 }
 
-function TabButton(props: { active: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
+function TabButton(props: {
+  id: Tab
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  children: React.ReactNode
+}) {
   return (
     <button
       type="button"
+      role="tab"
+      id={`tab-${props.id}`}
+      aria-selected={props.active}
+      aria-controls={`panel-${props.id}`}
+      tabIndex={props.active ? 0 : -1}
       onClick={props.onClick}
       className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 pb-2 text-[13px] font-medium ${
         props.active ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700'

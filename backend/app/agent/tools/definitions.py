@@ -109,7 +109,16 @@ def rank_handler(args: RankArgs, svc: InsightService) -> ToolResult:
     result.ui = [
         TableBlock(
             title=f"Terminal Expansion Opportunity Score - {label}",
-            columns=["#", "Airport", "Score", "US rank", "P(#1)", "Confidence", "Constraint flags"],
+            columns=[
+                "#",
+                "Airport",
+                "Score",
+                "US rank",
+                "P(#1)",
+                "Confidence",
+                "Likely bottleneck",
+                "Constraint flags",
+            ],
             rows=[
                 [
                     r["rank"],
@@ -118,6 +127,7 @@ def rank_handler(args: RankArgs, svc: InsightService) -> ToolResult:
                     f"{r['national_rank']}/{result.data['national_peer_count']}",
                     pct((r["rank_stability"] or {}).get("p_rank_1"), 0) if r["rank_stability"] else "-",
                     r["confidence"],
+                    r["bottleneck_check"]["likely_binding"],
                     ", ".join(r["constraint_flags"]) or "-",
                 ]
                 for r in ranking
@@ -416,13 +426,18 @@ def unmet_handler(args: AirportArgs, svc: InsightService) -> ToolResult:
 def live_handler(args: AirportArgs, svc: InsightService) -> ToolResult:
     result = svc.live_status(args.airport)
     d = result.data
-    nas, wx = d.get("faa_nas") or {}, d.get("weather") or {}
+    nas_ok = isinstance(d.get("faa_nas"), dict)
+    wx_ok = isinstance(d.get("weather"), dict)
+    nas, wx = d["faa_nas"] if nas_ok else {}, d["weather"] if wx_ok else {}
     programs = nas.get("active_programs") or []
+    programs_text = (
+        (", ".join(p["type"] for p in programs) or "none active") if nas_ok else "unavailable (FAA feed down)"
+    )
     result.ui = [
         KpiBlock(
             title=f"{d['airport']} right now ({d['as_of']})",
             items=[
-                Kpi(label="FAA programs", value=", ".join(p["type"] for p in programs) or "none active"),
+                Kpi(label="FAA programs", value=programs_text),
                 Kpi(
                     label="Arrival rate (FAA)",
                     value=str(nas.get("arrival_rate_per_hour") or "n/a"),
@@ -434,7 +449,7 @@ def live_handler(args: AirportArgs, svc: InsightService) -> ToolResult:
                 ),
                 Kpi(
                     label="Flight category",
-                    value=str(wx.get("flight_category") or "n/a"),
+                    value=str(wx.get("flight_category") or "n/a") if wx_ok else "unavailable",
                     hint=f"ceiling {wx.get('ceiling_ft') or 'none'} ft, vis {wx.get('visibility_sm') or '?'} sm",
                 ),
             ],

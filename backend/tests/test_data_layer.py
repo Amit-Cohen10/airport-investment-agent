@@ -8,6 +8,7 @@ from __future__ import annotations
 import zipfile
 
 import httpx
+import numpy as np
 import pandas as pd
 import pytest
 import respx
@@ -304,3 +305,103 @@ def test_snapshot_manifest_lists_every_table(settings):
 
     assert set(TABLES) <= set(manifest["tables"])
     assert all(t["status"] == "ok" for t in manifest["tables"].values())
+
+
+def test_atomic_write_keeps_previous_snapshot_on_failure(tmp_path, monkeypatch):
+    from app.data import ingest
+
+    path = tmp_path / "t.parquet"
+    good = pd.DataFrame({"a": [1, 2, 3]})
+    ingest.write_table_atomically(good, path)
+
+    def broken(self, *a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", broken)
+    with pytest.raises(OSError):
+        ingest.write_table_atomically(pd.DataFrame({"a": [9]}), path)
+    monkeypatch.undo()
+    assert pd.read_parquet(path)["a"].tolist() == [1, 2, 3]
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+class TestCompleteness:
+    def _monthly(self, months: int = 14, drop: tuple[str, str] | None = None) -> pd.DataFrame:
+        rows = [
+            {"airport": a, "month": m, "departures": 10.0, "passengers": 900.0, "seats": 1000.0}
+            for m in pd.date_range("2025-01-01", periods=months, freq="MS")
+            for a in ["BOS", "SFO", "ANC"] + [f"X{i:03d}" for i in range(800)]
+        ]
+        df = pd.DataFrame(rows)
+        if drop:
+            df = df[~((df["airport"] == drop[0]) & (df["month"] == pd.Timestamp(drop[1])))]
+        return df
+
+    def test_anchor_missing_latest_month_fails(self):
+        with pytest.raises(validation.ValidationError, match="latest month"):
+            validation.validate("t100_monthly", self._monthly(drop=("SFO", "2026-02-01")))
+
+    def test_null_column_fails(self):
+        df = self._monthly()
+        df["passengers"] = None
+        with pytest.raises(validation.ValidationError, match="null"):
+            validation.validate("t100_monthly", df)
+
+    def test_duplicate_keys_fail(self):
+        df = self._monthly()
+        with pytest.raises(validation.ValidationError, match="duplicate"):
+            validation.validate("t100_monthly", pd.concat([df, df.head(1)]))
+
+    def test_missing_month_suppresses_growth(self):
+        from app.analytics.features import traffic_features
+
+        months = pd.date_range("2024-09-01", "2026-08-01", freq="MS")
+        t = pd.DataFrame(
+            {
+                "airport": "X",
+                "month": months,
+                "passengers": 100.0,
+                "seats": 120.0,
+                "departures": 1.0,
+                "dom_departures": 1.0,
+                "freight_lbs": 0.0,
+                "intl_departures": 0.0,
+                "intl_passengers": 0.0,
+            }
+        )
+        t = pd.concat([t, t.assign(airport="Y")])
+        t = t[~((t["airport"] == "X") & (t["month"] == pd.Timestamp("2026-08-01")))]
+        f, _ = traffic_features(t)
+        assert np.isnan(f.at["X", "passenger_growth_ttm"]) and f.at["Y", "passenger_growth_ttm"] == 0
+
+
+def test_live_status_marks_faa_outage_as_unavailable(service):
+    from app.agent.tools.definitions import AirportArgs, live_handler
+    from app.data.connectors.live import LiveStatus
+
+    class HalfDown:
+        def airport_status(self, code, icao):
+            return LiveStatus(
+                airport=code,
+                available=True,
+                nas=None,
+                weather={"flight_category": "VFR"},
+                errors=["FAA NAS Status unavailable: timeout"],
+            )
+
+    service.live = HalfDown()
+    try:
+        result = live_handler(AirportArgs(airport="SFO"), service)
+    finally:
+        service.live = None
+    kpis = {k.label: k.value for k in result.ui[0].items}
+    assert kpis["FAA programs"].startswith("unavailable") and result.confidence.value == "medium"
+    assert result.data["faa_nas"] == "unavailable" and "errors" not in result.data
+
+
+def test_long_haul_threshold_below_short_haul_is_a_fixable_error(service):
+    from app.services.insights import AnalysisError
+
+    for bad in (500, 700):
+        with pytest.raises(AnalysisError, match="must be above"):
+            service.route_mix("ANC", bad)

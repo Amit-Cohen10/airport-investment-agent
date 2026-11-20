@@ -57,8 +57,15 @@ def enplanement_features(enpl: pd.DataFrame) -> pd.DataFrame:
 def traffic_features(t100: pd.DataFrame) -> tuple[pd.DataFrame, Window]:
     ttm, prev = ttm_windows(t100["month"])
     cols = ["departures", "dom_departures", "passengers", "seats", "freight_lbs", "intl_departures", "intl_passengers"]
-    cur = _in(t100, ttm).groupby("airport")[cols].sum()
-    old = _in(t100, prev).groupby("airport")[["passengers", "seats"]].sum()
+    cur_rows, old_rows = _in(t100, ttm), _in(t100, prev)
+    cur = cur_rows.groupby("airport")[cols].sum()
+    old = old_rows.groupby("airport")[["passengers", "seats"]].sum()
+    # Growth compares two full 12-month windows. If either window is missing months for an airport,
+    # the comparison is not like-for-like, and the source can't tell missing reporting from a month
+    # with no service. So growth is suppressed (scored neutral, lower coverage) instead of computed.
+    complete = (cur_rows.groupby("airport")["month"].nunique().reindex(cur.index) == 12) & (
+        old_rows.groupby("airport")["month"].nunique().reindex(cur.index) == 12
+    )
     out = pd.DataFrame(index=cur.index)
     out["departures_ttm"] = cur["departures"]
     out["dom_departures_ttm"] = cur["dom_departures"]
@@ -67,8 +74,9 @@ def traffic_features(t100: pd.DataFrame) -> tuple[pd.DataFrame, Window]:
     out["freight_lbs_ttm"] = cur["freight_lbs"]
     out["load_factor_ttm"] = (cur["passengers"] / cur["seats"]).where(cur["seats"] > 0)
     out["intl_departure_share"] = (cur["intl_departures"] / cur["departures"]).where(cur["departures"] > 0)
-    pax_growth = cur["passengers"] / old["passengers"] - 1
-    seat_growth = cur["seats"] / old["seats"] - 1
+    pax_growth = (cur["passengers"] / old["passengers"] - 1).where(complete)
+    seat_growth = (cur["seats"] / old["seats"] - 1).where(complete)
+    out["traffic_months_complete"] = complete
     out["passenger_growth_ttm"] = pax_growth
     out["seat_growth_ttm"] = seat_growth
     out["demand_supply_gap"] = (pax_growth - seat_growth) * 100  # percentage points

@@ -14,6 +14,7 @@ from typing import Any
 
 import pandas as pd
 
+from app.analytics.expansion_score import metric_unit
 from app.analytics.normalization import percentile_rank, weighted_mean
 
 
@@ -63,6 +64,7 @@ def explain(universe: pd.DataFrame, features: pd.DataFrame, code: str, cfg: dict
             {
                 "metric": metric,
                 "label": spec["label"],
+                "unit": metric_unit(metric),
                 "value": None if pd.isna(raw) else float(raw),
                 "percentile": None if pd.isna(pct) else round(float(pct), 1),
                 "weight": spec["weight"],

@@ -108,21 +108,49 @@ export function MessageView({ message, selected, onSelect, onSpeak }: Props) {
 }
 
 function GroundingBadge({ grounding }: { grounding: AgentAnswer['grounding'] }) {
-  if (grounding.unverified.length === 0) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 font-medium text-teal-700" title="Every number in the answer matches a tool output">
-        <ShieldCheck className="h-3.5 w-3.5" /> {grounding.checked} numbers verified
-      </span>
+  // A numeric match against the analyses' outputs: it catches invented or misread figures,
+  // it does not prove the narrative is right. The wording says exactly that.
+  const badges = []
+  if (grounding.checked === 0) {
+    badges.push(
+      <span key="none" className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
+        No figures to check
+      </span>,
+    )
+  } else if (grounding.unverified.length === 0) {
+    badges.push(
+      <span
+        key="ok"
+        className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 font-medium text-teal-700"
+        title="Every figure in the answer matches a value returned by the analyses (numeric match, not a proof of the narrative)"
+      >
+        <ShieldCheck className="h-3.5 w-3.5" /> {grounding.checked} figures match the data
+      </span>,
+    )
+  } else {
+    badges.push(
+      <span
+        key="bad"
+        className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700"
+        title={`Not found in the analyses' outputs: ${grounding.unverified.join(', ')}`}
+      >
+        <AlertTriangle className="h-3.5 w-3.5" /> {grounding.unverified.length} not found in data:{' '}
+        {grounding.unverified.slice(0, 3).join(', ')}
+      </span>,
     )
   }
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700"
-      title={`Not found in tool outputs: ${grounding.unverified.join(', ')}`}
-    >
-      <AlertTriangle className="h-3.5 w-3.5" /> {grounding.unverified.length} unverified: {grounding.unverified.slice(0, 3).join(', ')}
-    </span>
-  )
+  if (grounding.confidence_overstated) {
+    badges.push(
+      <span
+        key="conf"
+        className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700"
+        title="The answer states a higher confidence than the analyses returned"
+      >
+        <AlertTriangle className="h-3.5 w-3.5" /> Confidence overstated
+      </span>,
+    )
+  }
+  return <>{badges}</>
 }
 
 const formatMs = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`)

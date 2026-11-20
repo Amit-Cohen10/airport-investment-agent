@@ -16,12 +16,13 @@ import asyncio
 import json
 import logging
 import time
+import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.agent.context import build_messages, render_system_prompt, tool_message
-from app.agent.guardrails import check_grounding
+from app.agent.guardrails import check_grounding, confidence_overstated
 from app.agent.session_store import Session, SessionStore
 from app.agent.tools.registry import ToolRegistry
 from app.domain.models import ToolResult
@@ -30,6 +31,7 @@ from app.llm.base import AssistantTurn, LLMClient, LLMError
 log = logging.getLogger(__name__)
 
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
+WHAT_IF_SUFFIXES = ("_weight", "_threshold_mi")
 
 
 async def _noop(_: dict[str, Any]) -> None:
@@ -77,6 +79,7 @@ class AgentReply:
     evidence: list[ToolResult]
     grounding: dict[str, Any]
     trace: dict[str, Any]
+    evidence_from_earlier_turn: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         sources, seen = [], set()
@@ -93,6 +96,7 @@ class AgentReply:
             "sources": sources,
             "grounding": self.grounding,
             "trace": self.trace,
+            "evidence_from_earlier_turn": self.evidence_from_earlier_turn,
         }
 
 
@@ -113,7 +117,9 @@ class AgentRuntime:
         self.max_steps = max_steps
         self.history_max_chars = history_max_chars
         self.tool_timeout_s = tool_timeout_s
-        self._locks: dict[str, asyncio.Lock] = {}
+        # Weak values: a session's lock disappears once no request holds or awaits it, so the map
+        # never outgrows the live sessions (waiting requests keep a strong reference).
+        self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
     def _system_prompt(self) -> str:
         repo = self.registry.service.repo
@@ -122,7 +128,10 @@ class AgentRuntime:
     async def run(self, session_id: str | None, user_text: str, emit: Emit = _noop) -> AgentReply:
         session = self.sessions.get_or_create(session_id)
         # One turn at a time per session, so concurrent requests can't interleave their history.
-        async with self._locks.setdefault(session.id, asyncio.Lock()):
+        lock = self._locks.get(session.id)
+        if lock is None:
+            lock = self._locks[session.id] = asyncio.Lock()
+        async with lock:
             return await self._run_locked(session, session_id, user_text, emit)
 
     async def _run_locked(self, session: Session, requested_id: str | None, user_text: str, emit: Emit) -> AgentReply:
@@ -175,14 +184,27 @@ class AgentRuntime:
             answer = (turn.content or "").strip() or "I could not complete this analysis. Please rephrase the question."
             new_messages.append({"role": "assistant", "content": answer})
 
-        # Evidence = exactly the tool results the model had in its context (this turn and the
-        # history it was shown), plus the tool arguments it chose (e.g. a what-if weight).
-        # The user's own text is never evidence.
+        # Evidence = the *successful* tool results the model had in its context (this turn and the
+        # history it was shown). Never evidence: failed results and error text, echoed queries, the
+        # user's text, or free-form tool arguments. The only arguments that count are explicit
+        # what-if parameters (weights, thresholds) of successful calls, since they define the result.
         seen = [_safe_json(m["content"]) for m in messages if m.get("role") == "tool"]
-        arguments = [s["arguments"] for s in trace.steps if s["type"] == "tool" and isinstance(s["arguments"], dict)]
-        grounding = check_grounding(answer, [p for p in seen if isinstance(p, dict)] + arguments)
+        results = [p for p in seen if isinstance(p, dict) and p.get("ok", True) is not False]
+        params = [
+            {k: v for k, v in s["arguments"].items() if k.endswith(WHAT_IF_SUFFIXES)}
+            for s in trace.steps
+            if s["type"] == "tool" and s.get("ok") and isinstance(s["arguments"], dict)
+        ]
+        grounding = check_grounding(answer, results + params)
+        grounding.confidence_overstated = confidence_overstated(
+            answer, [r.confidence.value for r in evidence if r.confidence], _airport_confidences(evidence)
+        )
+        # A follow-up answered from earlier results (no new analysis this turn) still shows the evidence
+        # it relies on: the latest analyses from earlier in the conversation, labeled as such.
+        from_earlier = not evidence and grounding.checked > 0 and bool(session.last_evidence)
+        shown = list(session.last_evidence) if from_earlier else evidence
         self._update_session(session, new_messages, evidence)
-        return AgentReply(session.id, answer, evidence, grounding.to_dict(), trace.to_dict())
+        return AgentReply(session.id, answer, shown, grounding.to_dict(), trace.to_dict(), from_earlier)
 
     async def _run_tool(self, call_id: str, name: str, arguments: str, emit: Emit, trace: TurnTrace) -> ToolResult:
         await emit({"type": "tool_start", "id": call_id, "tool": name, "arguments": _safe_json(arguments)})
@@ -223,7 +245,21 @@ class AgentRuntime:
         if focus:
             session.focus_airports = list(dict.fromkeys(session.focus_airports + focus))[-12:]
         session.last_tools = [r.tool for r in evidence]
+        if evidence:
+            session.last_evidence = [r for r in evidence if r.ok]
         self.sessions.save(session)
+
+
+def _airport_confidences(evidence: list[ToolResult]) -> dict[str, str]:
+    """Per-airport confidence grades found in this turn's results (ranking rows, score breakdowns)."""
+    grades: dict[str, str] = {}
+    for result in evidence:
+        for row in result.data.get("ranking", []) or []:
+            if isinstance(row, dict) and row.get("code") and row.get("confidence"):
+                grades[row["code"]] = row["confidence"]
+        if isinstance(result.data.get("airport"), str) and result.confidence:
+            grades.setdefault(result.data["airport"], result.confidence.value)
+    return grades
 
 
 def _airports_in(data: dict[str, Any]) -> list[str]:

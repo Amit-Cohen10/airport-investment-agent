@@ -112,6 +112,21 @@ def score_universe(
     return ScoredUniverse(table=out, pillar_weights=pillar_weights, metric_columns=metric_cols)
 
 
+def metric_unit(metric: str) -> str:
+    """Unit of a raw metric value, stated explicitly so it is never misread (0.005 pp is not 0.5 pp)."""
+    if metric == "demand_supply_gap":
+        return "percentage points (already x100: 0.005 means 0.005 pp)"
+    if metric == "log_enplanements":
+        return "log10 of annual enplanements"
+    if metric == "recovery_vs_2019":
+        return "ratio to 2019 (1.10 = 110% of 2019)"
+    if metric.endswith("_min"):
+        return "minutes"
+    if metric.startswith("peak_hour"):
+        return "movements per hour"
+    return "fraction (0.25 = 25%)"
+
+
 def explain_airport(scored: ScoredUniverse, features: pd.DataFrame, code: str, cfg: ScoreConfig) -> dict[str, Any]:
     """Full breakdown for one airport: raw value, percentile, and contribution of every metric."""
     row = scored.table.loc[code]
@@ -127,6 +142,7 @@ def explain_airport(scored: ScoredUniverse, features: pd.DataFrame, code: str, c
                     "label": mspec["label"],
                     "value": None if pd.isna(raw) else float(raw),
                     "percentile": None if pd.isna(pct) else round(float(pct), 1),
+                    "unit": metric_unit(metric),
                     "imputed": bool(pd.isna(pct)),  # missing -> scored at the neutral median
                     "weight_in_pillar": mspec["weight"],
                 }

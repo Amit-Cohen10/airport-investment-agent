@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import date
@@ -93,6 +94,28 @@ def build_tables(client: httpx.Client, raw_dir: Path) -> dict[str, tuple[Callabl
     }
 
 
+def write_table_atomically(df: pd.DataFrame, path: Path) -> None:
+    """Write to a temp file, read it back, then atomically swap it in.
+
+    A crash or a full disk mid-write leaves the previous snapshot untouched, which is what makes
+    the "keep the last good snapshot" guarantee true for write failures too, not just fetch errors.
+    """
+    tmp = path.with_suffix(".parquet.tmp")
+    try:
+        df.to_parquet(tmp, index=False, compression="zstd")
+        if len(pd.read_parquet(tmp, columns=[df.columns[0]])) != len(df):
+            raise OSError(f"read-back row count mismatch for {path.name}")
+        os.replace(tmp, path)  # atomic on the same filesystem
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _write_text_atomically(path: Path, text: str) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 def _lid_map(snapshot_dir: Path) -> dict[str, str]:
     """FAA LID -> IATA bridge from the (already refreshed) airports table."""
     path = snapshot_dir / "airports.parquet"
@@ -127,7 +150,7 @@ def run(only: list[str] | None = None) -> dict:
             try:
                 df = canonicalize(name, builder(), lid_map=_lid_map(snapshot_dir))
                 validation.validate(name, df)
-                df.to_parquet(snapshot_dir / f"{name}.parquet", index=False, compression="zstd")
+                write_table_atomically(df, snapshot_dir / f"{name}.parquet")
                 manifest["tables"][name] = {
                     **meta,
                     "period": describe_period(name, df),
@@ -142,7 +165,7 @@ def run(only: list[str] | None = None) -> dict:
                 manifest["tables"][name] = {**previous, **meta, "status": f"stale: {exc}"[:300]}
 
     manifest["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    manifest_path.write_text(json.dumps(manifest, indent=2))
+    _write_text_atomically(manifest_path, json.dumps(manifest, indent=2))
     return manifest
 
 

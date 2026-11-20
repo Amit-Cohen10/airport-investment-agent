@@ -63,3 +63,19 @@ def test_sfo_unmet_demand_has_range_and_drivers(service):
 def test_unknown_airport_raises_analysis_error(service):
     with pytest.raises(AnalysisError):
         service.airport_profile("ZZZ")
+
+
+def test_methodology_text_matches_configured_missing_data_policy(service):
+    from app.agent.tools.methodology import methodology_text
+
+    text = methodology_text("expansion_score", service)
+    pct = service.cfg["expansion_score"]["missing_metric_percentile"]
+    assert f"neutral {pct}th percentile" in text and "re-normalized" not in text
+    assert "screening priority" in text
+
+
+def test_bottleneck_check_flags_non_terminal_constraints(service):
+    assert service._bottleneck_check("SNA")["likely_binding"] == "regulatory"
+    assert service._bottleneck_check("SFO")["likely_binding"] == "airside risk"
+    ranking = service.rank_expansion(["SFO", "SNA", "PWM"], "x").data["ranking"]
+    assert all("bottleneck_check" in r for r in ranking)

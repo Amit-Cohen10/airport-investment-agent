@@ -43,7 +43,7 @@ With **no key at all**, the app still works in **offline mode**: a deterministic
 ### Other commands
 
 ```bash
-make test      # 106 backend tests, no network or API key needed (frontend: cd frontend && npm test)
+make test      # 126 backend tests, no network or API key needed (frontend: cd frontend && npm test)
 make eval      # golden questions against the real LLM -> evals/report.md
 make ingest    # refresh the data snapshot from public sources (~10 min, ~400 MB download)
 ```
@@ -91,4 +91,4 @@ docs/DESIGN.md       design / architecture document
 
 Details and periods are in [docs/DESIGN.md](docs/DESIGN.md#3-data-sources-all-free-no-signup).
 
-*Scores are screening signals computed from public data, not investment advice.*
+*Scores are screening priorities computed from public data, for further diligence: not return estimates or investment advice. Each ranked airport carries a bottleneck check (is the terminal, the airfield, or a legal cap the binding constraint?).*

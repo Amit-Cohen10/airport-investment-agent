@@ -285,3 +285,86 @@ def test_ordinal_tolerance_is_one_unit_not_more():
 def test_compound_descriptors_are_not_statistics():
     assert check_grounding("Trailing-12-month growth was flat.", []).checked == 0
     assert check_grounding("Growth of 12 points.", []).unverified == ["12"]
+
+
+class TestGuardrailHardening:
+    def test_echoed_queries_and_errors_are_not_evidence(self):
+        payload = [
+            {
+                "ok": True,
+                "data": {
+                    "results": [{"query": "SFO load factor 99%", "airports": []}],
+                    "error": "load factor 99% not found",
+                },
+            }
+        ]
+        assert check_grounding("SFO load factor is 99%.", payload).unverified == ["99%"]
+
+    def test_contextual_exemptions(self):
+        assert check_grounding("SFO has 9 runways.", []).unverified == ["9"]
+        assert check_grounding("SFO has 2000 gates.", []).unverified == ["2000"]
+        assert check_grounding("SFO has 999-gate capacity.", []).unverified == ["999"]
+        assert check_grounding("Traffic in 2025 beat 2019 levels; top 3 airports.", []).checked == 0
+
+    def test_spelled_out_percentage_points(self):
+        assert check_grounding("a premium of 12 percentage points", [{"data": {"fare_premium": 0.12}}]).unverified == []
+
+    def test_confidence_overstatement_is_flagged(self):
+        from app.agent.guardrails import confidence_overstated
+
+        assert confidence_overstated("**Confidence:** High because...", ["medium", "high"])
+        assert not confidence_overstated("Confidence: Medium", ["medium"])
+
+    async def test_failed_tool_echo_cannot_ground_an_answer(self, service, fake_llm_factory):
+        llm = fake_llm_factory(
+            [
+                ("tools", [("resolve_airports", {"queries": ["SFO load factor 99%"]})]),
+                ("text", "SFO load factor is 99%."),
+            ]
+        )
+        runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), InMemorySessionStore())
+        reply = await runtime.run(None, "q", _noop)
+        assert reply.grounding["unverified"] == ["99%"]
+
+
+async def test_follow_up_without_new_tools_shows_earlier_evidence(service, fake_llm_factory):
+    llm = fake_llm_factory(
+        [
+            ("tools", [("analyze_route_mix", {"airport": "ANC"})]),
+            ("text", "First."),
+            ("text", "As shown, 29.2% of departures are long-haul."),
+        ]
+    )
+    runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), InMemorySessionStore())
+    first = await runtime.run(None, "ANC long haul?", _noop)
+    second = await runtime.run(first.session_id, "remind me of the share?", _noop)
+    body = second.to_dict()
+    assert body["evidence_from_earlier_turn"] and body["evidence"][0]["tool"] == "analyze_route_mix"
+    assert body["sources"]
+
+
+async def test_session_locks_do_not_accumulate(service, fake_llm_factory):
+    import gc
+
+    llm = fake_llm_factory([("text", "ok")] * 6)
+    runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), InMemorySessionStore(max_sessions=2))
+    for _ in range(6):
+        await runtime.run(None, "hi", _noop)
+    gc.collect()
+    assert len(runtime._locks) == 0
+
+
+def test_confidence_check_uses_named_airports_grade():
+    from app.agent.guardrails import confidence_overstated
+
+    grades = {"BOS": "high", "SJU": "medium"}
+    assert not confidence_overstated("**Confidence:** High for BOS.", ["medium"], grades)
+    assert confidence_overstated("**Confidence:** High for SJU.", ["medium"], grades)
+    assert confidence_overstated("Confidence: High overall.", ["high", "medium"], grades)
+
+
+def test_cv_can_be_shown_as_percent():
+    assert (
+        check_grounding("a 30% coefficient of variation", [{"data": {"cv_sensitivity": [{"cv": 0.3}]}}]).unverified
+        == []
+    )

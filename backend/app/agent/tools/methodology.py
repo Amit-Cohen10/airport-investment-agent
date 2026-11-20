@@ -16,8 +16,14 @@ def methodology_text(topic: str, svc: InsightService) -> str:
             "",
             f"Peers: US airports with >= {cfg['peer_universe']['min_annual_enplanements']:,} annual enplanements "
             f"({len(svc.default_scores.table)} airports). Each metric -> national percentile (0-100); "
-            "pillar = weighted mean of its metrics; total = weighted mean of pillars. Missing metrics are "
-            "dropped and weights re-normalized; confidence falls with data coverage.",
+            "pillar = weighted mean of its metrics; total = weighted mean of pillars. A missing metric is scored "
+            f"at the neutral {cfg['expansion_score'].get('missing_metric_percentile', 50)}th percentile (a data gap is "
+            "neither rewarded nor punished); confidence falls with data coverage "
+            f"(High needs >= {cfg['expansion_score']['confidence']['high_min_coverage']:.0%} of the weight backed by data).",
+            "",
+            "The score is a screening priority for further diligence, not an estimate of investment returns. It does "
+            "not prove that terminal capacity (rather than runways, airspace or a legal cap) is the binding constraint: "
+            "each ranked airport carries a 'bottleneck check' for that.",
             "",
         ]
         for p in cfg["expansion_score"]["pillars"].values():
@@ -60,8 +66,11 @@ def methodology_text(topic: str, svc: InsightService) -> str:
         lines.append("Live: FAA NAS Status API (nasstatus.faa.gov) and aviationweather.gov METAR.")
         return "\n".join(lines)
     return (
-        "Known limitations: no public data on gate counts or terminal square footage, so terminal utilization "
-        "is inferred from passengers, seats and load factors; on-time data covers reporting carriers' domestic "
+        "Known limitations: gate counts and terminal capacity are not integrated (there is no standardized national "
+        "API; airport master plans, e.g. SFO's Airport Development Plan, contain gate analyses and are the next "
+        "diligence step), so terminal pressure is inferred from passengers, seats and load factors; the score is a "
+        "screening priority, not a return estimate (costs, airline commitments, committed projects and concession "
+        "economics are not modeled); on-time data covers reporting carriers' domestic "
         "flights only; CY2025 FAA enplanements are preliminary; the spill model assumes demand variability (cv); "
         "curated constraints are hand-maintained; scores are screening signals, not investment advice."
     )

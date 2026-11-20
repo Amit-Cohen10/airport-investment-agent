@@ -207,6 +207,7 @@ class InsightService:
                     },
                     "rank_stability": stability.get(code),
                     "constraint_flags": self.notes.constraint_flags(code),
+                    "bottleneck_check": self._bottleneck_check(code),
                 }
             )
         return ToolResult(
@@ -228,8 +229,12 @@ class InsightService:
             assumptions=[
                 "Score = weighted mean of 4 pillar scores; each metric is a percentile vs "
                 f"{len(table)} US airports with >= {self.score_cfg.min_enplanements:,.0f} annual enplanements.",
-                "Terminal investment value is proxied by passenger demand growth, utilization, strain and revenue base; "
-                "actual gate/terminal capacity data is not public, so physical terminal utilization is not measured directly.",
+                "The score is a screening priority for further diligence, not an estimate of investment returns: it proxies "
+                "terminal pressure with demand growth, utilization, strain and revenue base.",
+                "Gate counts and terminal capacity are not integrated (no standardized national API; airport master "
+                "plans contain gate analyses and are the next diligence step), so terminal utilization is not measured directly.",
+                "Bottleneck check: flags when the binding constraint is likely airside (runways/airspace) or regulatory, "
+                "where terminal expansion alone may not unlock growth.",
                 "Rank stability: 1,000 random re-weightings of the pillars (Dirichlet around the default weights).",
             ],
             caveats=[
@@ -379,6 +384,11 @@ class InsightService:
         code = self._require(code)
         cfg = self.cfg["route_mix"]
         long_min = long_haul_min_mi or cfg["long_haul_min_mi"]
+        if long_min <= cfg["short_haul_max_mi"]:
+            raise AnalysisError(
+                f"The long-haul threshold ({long_min:,.0f} mi) must be above the short-haul boundary "
+                f"({cfg['short_haul_max_mi']} mi). Use e.g. 2000, 3000 or 4000."
+            )
         thresholds = sorted(set(cfg["alternative_thresholds_mi"]) | {long_min})
         window = self.repo.segment_window
         segments = self.repo.segments_from(code, window)
@@ -504,28 +514,63 @@ class InsightService:
         icao = self.features.at[code, "icao"]
         status = self.live.airport_status(code, None if pd.isna(icao) else str(icao))
         now = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M UTC")
+        # Each source reports its own availability: an FAA outage must read "unavailable",
+        # never "no active programs", and confidence reflects how many sources answered.
+        sources_ok = {"faa_nas": status.nas is not None, "weather": status.weather is not None}
+        answered = sum(sources_ok.values())
+        caveats = ["A single real-time snapshot: illustrates current conditions, not long-run performance."]
+        if not sources_ok["faa_nas"]:
+            caveats.append("FAA NAS status was unavailable: delay programs and arrival rate are unknown, not zero.")
+        if not sources_ok["weather"]:
+            caveats.append("METAR weather was unavailable.")
         return ToolResult(
             tool="get_live_status",
-            ok=status.available,
-            summary=f"{code} live: " + ("ok" if status.available else "unavailable"),
+            ok=answered > 0,
+            summary=f"{code} live: " + ", ".join(f"{k} {'ok' if v else 'unavailable'}" for k, v in sources_ok.items()),
             data=_clean(
                 {
                     "airport": code,
                     "as_of": now,
-                    "faa_nas": status.nas,
-                    "weather": status.weather,
-                    "errors": status.errors,
+                    "sources_available": sources_ok,
+                    "faa_nas": status.nas if sources_ok["faa_nas"] else "unavailable",
+                    "weather": status.weather if sources_ok["weather"] else "unavailable",
                 }
             ),
             provenance=[
                 Provenance(source=NAS_SOURCE, period=now, url="https://nasstatus.faa.gov/"),
                 Provenance(source=METAR_SOURCE, period=now, url="https://aviationweather.gov/"),
             ],
-            caveats=["A single real-time snapshot: illustrates current conditions, not long-run performance."],
-            confidence=Confidence.HIGH if status.available else Confidence.LOW,
+            caveats=caveats,
+            confidence=[Confidence.LOW, Confidence.MEDIUM, Confidence.HIGH][answered],
         )
 
     # --- helpers ------------------------------------------------------------
+    def _bottleneck_check(self, code: str) -> dict[str, str]:
+        """Heuristic: which constraint is most likely binding (a terminal investment only pays if it is the terminal).
+
+        Deterministic and deliberately conservative: it only names airside/regulatory constraints the data or
+        curated notes show; otherwise it says the terminal is plausible but unconfirmed without facility data.
+        """
+        topics = " ".join(self.notes.constraint_flags(code)).lower()
+        if "cap" in topics or "curfew" in topics:
+            return {
+                "likely_binding": "regulatory",
+                "why": "A legal passenger cap or curfew limits growth regardless of terminal size.",
+            }
+        cong = self.congestion_scores
+        nas_pct = cong.at[code, "pct__nas_delay_per_arrival_min"] if code in cong.index else float("nan")
+        if "runway" in topics or "arrival" in topics or (not pd.isna(nas_pct) and nas_pct >= 80):
+            return {
+                "likely_binding": "airside risk",
+                "why": "Runway/airspace capacity (high NAS delay or a runway constraint) may bind before the "
+                "terminal; terminal expansion alone may not unlock growth.",
+            }
+        return {
+            "likely_binding": "unconfirmed",
+            "why": "No airside or regulatory constraint detected; confirm terminal/gate utilization with the "
+            "airport's master plan before investing.",
+        }
+
     def _core_provenance(self) -> list[Provenance]:
         return [
             self._prov("enplanements"),

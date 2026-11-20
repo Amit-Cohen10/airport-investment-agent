@@ -68,7 +68,8 @@ export interface AgentAnswer {
   answer: string
   evidence: ToolEvidence[]
   sources: Provenance[]
-  grounding: { checked: number; unverified: string[]; grounded_ratio: number }
+  evidence_from_earlier_turn?: boolean
+  grounding: { checked: number; unverified: string[]; grounded_ratio: number; confidence_overstated?: boolean }
   trace: {
     steps: TraceStep[]
     llm_calls: number
