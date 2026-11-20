@@ -90,6 +90,12 @@ class InsightService:
             self.features, self.cfg["congestion_index"], self.score_cfg.min_enplanements
         )
 
+    def _score_with(self, weight_overrides: dict[str, float]) -> ScoredUniverse:
+        try:
+            return score_universe(self.features, self.score_cfg, weight_overrides)
+        except ValueError as exc:  # e.g. all weights zero, unknown pillar -> fixable by the model
+            raise AnalysisError(f"Invalid weights: {exc}") from exc
+
     def _prov(self, table: str, period: str | None = None, note: str | None = None) -> Provenance:
         meta = self.repo.source(table)
         return Provenance(
@@ -152,9 +158,7 @@ class InsightService:
     def rank_expansion(
         self, codes: list[str], scope_label: str, weight_overrides: dict[str, float] | None = None, top_n: int = 10
     ) -> ToolResult:
-        scored = (
-            score_universe(self.features, self.score_cfg, weight_overrides) if weight_overrides else self.default_scores
-        )
+        scored = self._score_with(weight_overrides) if weight_overrides else self.default_scores
         table = scored.table
         in_scope = [c for c in dict.fromkeys(c.upper() for c in codes) if c in table.index]
         excluded = [c for c in codes if c.upper() not in table.index]
@@ -192,6 +196,8 @@ class InsightService:
                     "national_rank": int(row["national_rank"]),
                     "confidence": row["confidence"],
                     "pillars": {p: row[f"pillar__{p}"] for p in pillars},
+                    # Weights actually applied: missing pillars are dropped and the rest re-normalized.
+                    "effective_weights": _effective_weights(row, pillars, scored.pillar_weights),
                     "key_metrics": {
                         "enplanements_cy_latest": f["enplanements_latest"],
                         "enplanement_cagr_3y": f["enplanement_cagr_3y"],
@@ -237,9 +243,7 @@ class InsightService:
 
     def explain_score(self, code: str, weight_overrides: dict[str, float] | None = None) -> ToolResult:
         code = self._require(code)
-        scored = (
-            score_universe(self.features, self.score_cfg, weight_overrides) if weight_overrides else self.default_scores
-        )
+        scored = self._score_with(weight_overrides) if weight_overrides else self.default_scores
         if code not in scored.table.index:
             raise AnalysisError(f"{code} is below the peer threshold or lacks data for scoring.")
         breakdown = explain_airport(scored, self.features, code, self.score_cfg)
@@ -317,10 +321,16 @@ class InsightService:
     def compare_congestion(self, codes: list[str]) -> ToolResult:
         codes = [self._require(c) for c in codes]
         cfg = self.cfg["congestion_index"]
+        scores = self.congestion_scores
+        no_data = [c for c in codes if c not in scores.index or pd.isna(scores.at[c, "congestion_index"])]
+        codes = [c for c in codes if c not in no_data]
+        if not codes:
+            raise AnalysisError(
+                f"No on-time (delay/taxi) data for {', '.join(no_data)}: its airlines are not BTS reporting "
+                "carriers or traffic is too small, so congestion cannot be measured."
+            )
         airports = []
         for code in codes:
-            if code not in self.congestion_scores.index:
-                raise AnalysisError(f"{code} has no on-time data for congestion analysis.")
             entry = congestion.explain(self.congestion_scores, self.features, code, cfg)
             f = self.features.loc[code]
             cap = self.notes.structured(code, "annual_passenger_cap")
@@ -344,7 +354,7 @@ class InsightService:
         return ToolResult(
             tool="compare_congestion",
             summary="Congestion index: " + ", ".join(f"{a['airport']} {a['congestion_index']}" for a in ordered),
-            data=_clean({"airports": ordered}),
+            data=_clean({"airports": ordered, "airports_without_ontime_data": no_data}),
             provenance=[
                 self._prov("ontime_monthly", self.periods["ontime"]),
                 self._prov("airports"),
@@ -520,6 +530,12 @@ class InsightService:
             self._prov("ontime_monthly", self.periods["ontime"]),
             self._prov("airfare_markets", self.periods["fares"]),
         ]
+
+
+def _effective_weights(row: pd.Series, pillars: list[str], weights: dict[str, float]) -> dict[str, float]:
+    present = {p: w for p, w in weights.items() if not pd.isna(row[f"pillar__{p}"])}
+    total = sum(present.values()) or 1.0
+    return {p: present.get(p, 0.0) / total for p in pillars}
 
 
 def _min_confidence(values: list[str]) -> Confidence:

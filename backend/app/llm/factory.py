@@ -55,10 +55,10 @@ class ResilientLLM:
                         delay = min(exc.retry_after_s or self.base_delay_s * 2 ** (attempt - 1), 20)
                         log.warning("%s retryable error (%s); retry in %.1fs", client.name, exc, delay)
                         await asyncio.sleep(delay + random.uniform(0, 0.5))
-                except LLMError as exc:
+                except Exception as exc:  # non-retryable (LLMError) or adapter bug: fail over immediately
                     last = exc
                     log.error("%s failed: %s", client.name, exc)
-                    break  # non-retryable for this provider: fail over immediately
+                    break
             log.warning("provider %s exhausted, failing over", client.name)
         raise LLMError(f"All LLM providers failed. Last error: {last}")
 

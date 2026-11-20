@@ -179,3 +179,75 @@ class TestOfflinePlanner:
             assert [e.tool for e in reply.evidence] == [tool], question
             assert "Offline mode" in reply.answer
             assert reply.grounding["unverified"] == []
+
+
+class TestReviewRegressions:
+    def test_anthropic_tolerates_malformed_tool_arguments_in_history(self):
+        from app.llm.anthropic_client import to_anthropic
+
+        msgs = [
+            {"role": "user", "content": "q"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "c1", "type": "function", "function": {"name": "x", "arguments": '{"airport": "SFO"'}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "{}"},
+            {"role": "assistant", "content": ""},
+        ]
+        _, out = to_anthropic(msgs)
+        assert out[1]["content"][0]["input"] == {}
+        assert all(m["content"] for m in out)  # empty assistant turn dropped
+
+    async def test_unexpected_adapter_exception_fails_over(self):
+        class Crashes:
+            name, model = "crash", "x"
+
+            async def chat(self, *a, **k):
+                raise KeyError("bug")
+
+        class Works:
+            name, model = "works", "y"
+
+            async def chat(self, *a, **k):
+                return AssistantTurn(
+                    content="ok", tool_calls=[], message={"role": "assistant", "content": "ok"}, provider="works"
+                )
+
+        assert (await ResilientLLM([Crashes(), Works()]).chat([])).provider == "works"
+
+    def test_congestion_skips_airports_without_ontime_data(self, registry):
+        result = registry.execute("compare_congestion", json.dumps({"airports": ["HVN", "SFO"]}))
+        assert result.ok
+        assert result.data["airports_without_ontime_data"] == ["HVN"]
+
+    def test_all_zero_weights_is_a_fixable_error(self, registry):
+        args = {
+            "region": "New England",
+            "demand_momentum_weight": 0,
+            "capacity_utilization_weight": 0,
+            "operational_strain_weight": 0,
+            "revenue_potential_weight": 0,
+        }
+        result = registry.execute("rank_expansion_candidates", json.dumps(args))
+        assert not result.ok and "Invalid weights" in result.data["error"]
+
+    def test_grounding_rejects_unrelated_percentages(self):
+        payload = [{"data": {"lf": 0.8165, "enplanements": 21021153, "rank": 19}}]
+        report = check_grounding("Load factor 81.7%, 21.0M passengers, but growth of 37% and 2,050 flights.", payload)
+        assert report.unverified == ["37%", "2,050"]
+
+    async def test_grounding_accepts_numbers_from_earlier_turns(self, service, fake_llm_factory):
+        llm = fake_llm_factory(
+            [
+                ("tools", [("analyze_route_mix", {"airport": "ANC"})]),
+                ("text", "First."),
+                ("text", "At 4,000 miles the share is 11.3% of all flights."),
+            ]
+        )
+        runtime = AgentRuntime(llm, ToolRegistry(service, build_tools()), InMemorySessionStore())
+        first = await runtime.run(None, "ANC long haul?", _noop)
+        second = await runtime.run(first.session_id, "and at 4000 miles?", _noop)
+        assert second.grounding["unverified"] == []

@@ -18,7 +18,14 @@ BASE_URLS = {
 
 # Gemini attaches "thought signatures" in `extra_content`; it must be echoed back to Gemini,
 # but other providers may reject unknown fields, so it is stripped for them.
-_MESSAGE_KEYS = {"role", "content", "tool_calls", "tool_call_id", "name", "extra_content"}
+_MESSAGE_KEYS = {  # anything else (e.g. our "synthetic" marker) is stripped
+    "role",
+    "content",
+    "tool_calls",
+    "tool_call_id",
+    "name",
+    "extra_content",
+}
 _TOOL_CALL_KEYS = {"id", "type", "function", "extra_content"}
 
 
@@ -40,6 +47,8 @@ class OpenAICompatClient:
                     {k: v for k, v in tc.items() if k in _TOOL_CALL_KEYS and (keep_extra or k != "extra_content")}
                     for tc in m["tool_calls"]
                 ]
+            if m.get("role") == "assistant" and not m.get("content") and not m.get("tool_calls"):
+                continue  # empty assistant turns are rejected by some endpoints
             clean.append(m)
         return clean
 

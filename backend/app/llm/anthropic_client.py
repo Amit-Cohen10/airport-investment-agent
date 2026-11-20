@@ -18,7 +18,10 @@ def to_anthropic(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, An
         if role == "system":
             system_parts.append(msg["content"])
         elif role == "user":
-            out.append({"role": "user", "content": msg["content"]})
+            if out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], list):
+                out[-1]["content"].append({"type": "text", "text": msg["content"]})
+            else:
+                out.append({"role": "user", "content": msg["content"]})
         elif role == "assistant":
             blocks: list[dict[str, Any]] = []
             if msg.get("content"):
@@ -29,10 +32,11 @@ def to_anthropic(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, An
                         "type": "tool_use",
                         "id": tc["id"],
                         "name": tc["function"]["name"],
-                        "input": json.loads(tc["function"].get("arguments") or "{}"),
+                        "input": _parse_args(tc["function"].get("arguments")),
                     }
                 )
-            out.append({"role": "assistant", "content": blocks or [{"type": "text", "text": ""}]})
+            if blocks:  # empty assistant turns are rejected by the Messages API
+                out.append({"role": "assistant", "content": blocks})
         elif role == "tool":
             block = {"type": "tool_result", "tool_use_id": msg["tool_call_id"], "content": msg["content"]}
             # Consecutive tool results belong in one user message.
@@ -41,6 +45,15 @@ def to_anthropic(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, An
             else:
                 out.append({"role": "user", "content": [block]})
     return "\n\n".join(system_parts), out
+
+
+def _parse_args(raw: str | None) -> dict[str, Any]:
+    """Tool arguments in history may be malformed (from another provider); never crash on them."""
+    try:
+        parsed = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 class AnthropicClient:

@@ -3,6 +3,7 @@ import { deleteSession, streamChat } from '../api/client'
 import type { AgentAnswer } from '../api/types'
 
 export interface ProgressStep {
+  id: string
   tool: string
   done: boolean
   ok?: boolean
@@ -28,6 +29,7 @@ const nextId = () => `m${Date.now()}_${counter++}`
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false) // synchronous guard against double submit (state updates are async)
   const sessionRef = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -36,7 +38,8 @@ export function useChat() {
 
   const send = useCallback(async (text: string): Promise<AgentAnswer | null> => {
     const question = text.trim()
-    if (!question || busy) return null
+    if (!question || busyRef.current) return null
+    busyRef.current = true
     const assistantId = nextId()
     setMessages((all) => [
       ...all,
@@ -60,12 +63,12 @@ export function useChat() {
               patch(assistantId, (m) => ({ ...m, status: event.message }))
               break
             case 'tool_start':
-              patch(assistantId, (m) => ({ ...m, steps: [...(m.steps ?? []), { tool: event.tool, done: false }] }))
+              patch(assistantId, (m) => ({ ...m, steps: [...(m.steps ?? []), { id: event.id, tool: event.tool, done: false }] }))
               break
             case 'tool_end':
               patch(assistantId, (m) => {
                 const steps = [...(m.steps ?? [])]
-                const i = steps.findIndex((s) => s.tool === event.tool && !s.done)
+                const i = steps.findIndex((s) => s.id === event.id)
                 if (i >= 0) steps[i] = { ...steps[i], done: true, ok: event.ok, summary: event.summary, ms: event.ms }
                 return { ...m, steps }
               })
@@ -87,10 +90,11 @@ export function useChat() {
     } finally {
       patch(assistantId, (m) => (m.pending ? { ...m, pending: false, error: m.error ?? 'Stopped.' } : m))
       setBusy(false)
+      busyRef.current = false
       abortRef.current = null
     }
     return final
-  }, [busy])
+  }, [])
 
   const stop = useCallback(() => abortRef.current?.abort(), [])
 

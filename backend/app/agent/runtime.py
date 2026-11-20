@@ -132,12 +132,17 @@ class AgentRuntime:
             await emit({"type": "status", "message": "Thinking..." if step == 0 else "Reviewing results..."})
             turn = await self.llm.chat(messages, tools)
             trace.record_llm(turn)
-            messages.append(turn.message)
-            new_messages.append(turn.message)
             if not turn.tool_calls:
                 answer = (turn.content or "").strip()
+                if answer:  # never persist an empty assistant message (some providers reject it later)
+                    messages.append(turn.message)
+                    new_messages.append(turn.message)
                 break
-            results = await asyncio.gather(*(self._run_tool(c.name, c.arguments, emit, trace) for c in turn.tool_calls))
+            messages.append(turn.message)
+            new_messages.append(turn.message)
+            results = await asyncio.gather(
+                *(self._run_tool(c.id, c.name, c.arguments, emit, trace) for c in turn.tool_calls)
+            )
             for call, result in zip(turn.tool_calls, results, strict=True):
                 msg = tool_message(call.id, call.name, result.for_llm())
                 messages.append(msg)
@@ -148,20 +153,28 @@ class AgentRuntime:
         if not answer:
             # Step budget exhausted or empty reply: force a final answer without tools.
             await emit({"type": "status", "message": "Summarizing..."})
+            # The nudge is marked synthetic: it is never persisted, and the offline planner ignores it.
             messages.append(
-                {"role": "user", "content": "Write the final answer now using only the tool results above."}
+                {
+                    "role": "user",
+                    "content": "Write the final answer now using only the tool results above.",
+                    "synthetic": True,
+                }
             )
-            turn = await self.llm.chat(messages, tools=None)
+            turn = await self.llm.chat(messages, tools, tool_choice="none")
             trace.record_llm(turn)
             answer = (turn.content or "").strip() or "I could not complete this analysis. Please rephrase the question."
             new_messages.append({"role": "assistant", "content": answer})
 
-        grounding = check_grounding(answer, [r.for_llm() for r in evidence], user_text)
+        # Numbers may legitimately come from this turn's tools or from earlier turns' tool results.
+        earlier = [_safe_json(m["content"]) for m in session.messages if m.get("role") == "tool"]
+        payloads = [r.for_llm() for r in evidence] + [p for p in earlier if isinstance(p, dict)]
+        grounding = check_grounding(answer, payloads, user_text)
         self._update_session(session, new_messages, evidence)
         return AgentReply(session.id, answer, evidence, grounding.to_dict(), trace.to_dict())
 
-    async def _run_tool(self, name: str, arguments: str, emit: Emit, trace: TurnTrace) -> ToolResult:
-        await emit({"type": "tool_start", "tool": name, "arguments": _safe_json(arguments)})
+    async def _run_tool(self, call_id: str, name: str, arguments: str, emit: Emit, trace: TurnTrace) -> ToolResult:
+        await emit({"type": "tool_start", "id": call_id, "tool": name, "arguments": _safe_json(arguments)})
         started = time.perf_counter()
         try:
             # Tools are sync (pandas/DuckDB/httpx); run them off the event loop.
@@ -186,7 +199,9 @@ class AgentRuntime:
                 "ms": ms,
             }
         )
-        await emit({"type": "tool_end", "tool": name, "ok": result.ok, "summary": result.summary, "ms": ms})
+        await emit(
+            {"type": "tool_end", "id": call_id, "tool": name, "ok": result.ok, "summary": result.summary, "ms": ms}
+        )
         return result
 
     def _update_session(self, session: Session, new_messages: list[dict[str, Any]], evidence: list[ToolResult]) -> None:

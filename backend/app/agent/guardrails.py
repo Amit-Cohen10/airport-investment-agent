@@ -53,17 +53,26 @@ def evidence_pool(tool_payloads: list[dict[str, Any]], extra_text: str = "") -> 
     for payload in tool_payloads:
         _collect(payload, raw)
     _collect(extra_text, raw)
-    pool = set()
-    for v in raw:
-        pool.update({v, abs(v), v * 100, abs(v) * 100, v / 1e3, v / 1e6, v / 1e9, abs(v) / 1e6, abs(v) / 1e3})
-        if 0 < abs(v) < 5:  # ratios like 0.905 (cap utilization) or 1.12 (vs 2019) shown as "+12%"
-            pool.add(abs(v - 1) * 100)
-    return sorted(pool)
+    return sorted({abs(v) for v in raw})
 
 
-def _matches(value: float, decimals: int, pool: list[float]) -> bool:
-    tol = max(0.5 * 10 ** (-decimals), abs(value) * 0.015)
-    return any(abs(value - p) <= tol for p in pool)
+def _candidates(pool: list[float], unit: str) -> list[float]:
+    """Scale tool values into the unit the answer displays (only that unit: no blanket x100)."""
+    if unit in ("%", "percent", "pp"):
+        # fractions shown as percent (0.292 -> 29.2%), values already in percent/pp, ratios as change (1.12 -> 12%)
+        return pool + [v * 100 for v in pool] + [abs(v - 1) * 100 for v in pool if 0 < v < 5]
+    if unit in ("m", "million"):
+        return [v / 1e6 for v in pool]
+    if unit in ("k", "thousand"):
+        return [v / 1e3 for v in pool]
+    if unit in ("b", "billion"):
+        return [v / 1e9 for v in pool]
+    return pool
+
+
+def _matches(value: float, decimals: int, candidates: list[float]) -> bool:
+    tol = max(0.5 * 10 ** (-decimals), abs(value) * 0.005)  # display rounding, plus 0.5% slack
+    return any(abs(value - c) <= tol for c in candidates)
 
 
 def check_grounding(answer: str, tool_payloads: list[dict[str, Any]], user_text: str = "") -> GroundingReport:
@@ -74,11 +83,12 @@ def check_grounding(answer: str, tool_payloads: list[dict[str, Any]], user_text:
         dec = m.group("dec") or ""
         unit = (m.group("unit") or "").lower()
         value = float(digits + dec)
-        if not unit and not dec and (1900 <= value <= 2100 or value <= 10):
+        is_year = "," not in m.group("num") and 1900 <= value <= 2100
+        if not unit and not dec and (is_year or value <= 10):
             continue  # years, small counts/ordinals ("top 3", "4 pillars")
         # Compared in the displayed scale: "2.7M" matches 2665790 because the pool holds v/1e6;
         # "29.2%" matches 0.292 because the pool holds v*100.
         report.checked += 1
-        if not _matches(value, len(dec) - 1 if dec else 0, pool):
+        if not _matches(value, len(dec) - 1 if dec else 0, _candidates(pool, unit)):
             report.unverified.append(m.group(0).strip())
     return report

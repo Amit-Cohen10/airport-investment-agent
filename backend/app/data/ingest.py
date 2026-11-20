@@ -27,6 +27,7 @@ import pandas as pd
 
 from app.config import get_settings
 from app.data import validation
+from app.data.codes import canonicalize
 from app.data.connectors import (
     bts_airfare,
     bts_ontime,
@@ -94,8 +95,8 @@ def build_tables(client: httpx.Client, raw_dir: Path) -> dict[str, tuple[Callabl
 
 def describe_period(name: str, df: pd.DataFrame) -> str:
     if name == "enplanements":
-        years = sorted(df["year"].unique())
-        return f"CY{years[0]}-CY{years[-1]} (CY2025 preliminary)"
+        years = [int(y) for y in sorted(df["year"].unique()) if y >= 2019]
+        return ", ".join(f"CY{y}" for y in years) + " (latest preliminary)"
     if name == "airfare_markets":
         first = df.sort_values(["year", "quarter"]).iloc[0]
         last = df.sort_values(["year", "quarter"]).iloc[-1]
@@ -118,7 +119,7 @@ def run(only: list[str] | None = None) -> dict:
                 continue
             started = time.time()
             try:
-                df = builder()
+                df = canonicalize(name, builder())
                 validation.validate(name, df)
                 df.to_parquet(snapshot_dir / f"{name}.parquet", index=False, compression="zstd")
                 manifest["tables"][name] = {

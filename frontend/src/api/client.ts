@@ -27,7 +27,10 @@ export async function streamChat(
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+    // Normalize line endings on the whole buffer (a CRLF can be split across two network chunks),
+    // but keep a trailing '\r' until the next chunk tells us whether a '\n' follows.
+    buffer += decoder.decode(value, { stream: true })
+    buffer = buffer.replace(/\r\n|\r(?!$)/g, '\n')
     let boundary: number
     while ((boundary = buffer.indexOf('\n\n')) !== -1) {
       const raw = buffer.slice(0, boundary)

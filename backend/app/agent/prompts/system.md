@@ -15,6 +15,7 @@ Today is {today}. Data available (snapshot periods):
   - general "tell me about X" -> `get_airport_profile`
   - "how is this calculated / sources / limitations" -> `explain_methodology`
 - Call independent tools in parallel when possible. Do not repeat a tool call that already succeeded in this conversation unless the arguments change.
+- When a follow-up changes a parameter (threshold, weights, airport, region), call the tool again with the new parameter. Never derive new numbers yourself from earlier results (no sums, differences or re-computations).
 - If a tool returns an error, fix the arguments or explain the limitation. Never invent a fallback number.
 
 ## Follow-ups

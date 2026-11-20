@@ -55,6 +55,7 @@ def estimate(
     max_lf: float,
     target_lf: float,
     constrained_lf: float,
+    window_months: int = 12,
     top_n: int = 10,
 ) -> dict[str, Any]:
     """segments: scheduled passenger route-months departing ONE airport in the analysis window."""
@@ -74,8 +75,10 @@ def estimate(
     carried = float(df["passengers"].sum())
     spilled = float(df["spill"].sum())
     months = max(df["month"].nunique(), 1)
+    # Annualize by the analysis window, not by months observed: a seasonal airport with
+    # 8 active months in a 12-month window must not be scaled up by 12/8.
     seats_per_departure = float(df["seats"].sum() / max(df["departures"].sum(), 1))
-    extra_departures_per_day = spilled / (seats_per_departure * target_lf) / (months * 30.4)
+    extra_departures_per_day = spilled / (seats_per_departure * target_lf) / (window_months * 30.4)
 
     routes = (
         df.groupby("dest", as_index=False)
@@ -91,7 +94,7 @@ def estimate(
     )
     constrained = routes[routes["load_factor"] >= constrained_lf]
     sensitivity = [{"cv": c, "spilled_passengers": round(float(total_spill(c).sum()))} for c in cv_sensitivity]
-    annualize = 12 / months
+    annualize = 12 / window_months
     return {
         "months_analyzed": months,
         "carried_passengers": round(carried),

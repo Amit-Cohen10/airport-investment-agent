@@ -129,7 +129,10 @@ def rank_handler(args: RankArgs, svc: InsightService) -> ToolResult:
             title="Score composition (pillar score x weight)",
             categories=[r["code"] for r in ranking],
             series=[
-                BarSeries(name=labels[p], values=[round((r["pillars"][p] or 0) * weights[p], 1) for r in ranking])
+                BarSeries(
+                    name=labels[p],
+                    values=[round((r["pillars"][p] or 0) * r["effective_weights"][p], 1) for r in ranking],
+                )
                 for p in pillars
             ],
             stacked=True,
@@ -264,7 +267,7 @@ def congestion_handler(args: CongestionArgs, svc: InsightService) -> ToolResult:
             )
         rows.append([m["label"]] + cells)
     rows.append(["Runways (>=4,000 ft)"] + [str(int(a["runways"] or 0)) for a in airports])
-    rows.append(["Scheduled hours/day"] + [f"{a['active_schedule_hours_per_day']:.1f}" for a in airports])
+    rows.append(["Scheduled hours/day"] + [fmt_metric("hours", a["active_schedule_hours_per_day"]) for a in airports])
     ui = [
         BarChartBlock(
             title="Congestion Index (0-100, percentile vs US peers)",

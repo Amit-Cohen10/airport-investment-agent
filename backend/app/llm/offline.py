@@ -38,7 +38,7 @@ class OfflinePlanner:
         self.resolve = resolver
 
     async def chat(self, messages: list[dict[str, Any]], tools=None, tool_choice: str = "auto") -> AssistantTurn:
-        last_user = max(i for i, m in enumerate(messages) if m["role"] == "user")
+        last_user = max(i for i, m in enumerate(messages) if m["role"] == "user" and not m.get("synthetic"))
         tool_msgs = [m for m in messages[last_user + 1 :] if m["role"] == "tool"]
         if tool_msgs or not tools:
             return self._answer(tool_msgs)

@@ -5,15 +5,15 @@
       "url": "https://ourairports.com/data/",
       "period": "as of Nov 2026",
       "rows": 1945,
-      "fetched_at": "2026-11-20T07:45:20Z",
+      "fetched_at": "2026-11-20T08:17:42Z",
       "status": "ok"
     },
     "enplanements": {
       "source": "FAA Passenger Boarding (Enplanement) Data",
       "url": "https://www.faa.gov/airports/planning_capacity/passenger_allcargo_stats/passenger",
-      "period": "CY2018-CY2025 (CY2025 preliminary)",
+      "period": "CY2019, CY2022, CY2023, CY2024, CY2025 (latest preliminary)",
       "rows": 3080,
-      "fetched_at": "2026-11-20T07:45:23Z",
+      "fetched_at": "2026-11-20T08:18:57Z",
       "status": "ok"
     },
     "t100_monthly": {
@@ -21,7 +21,7 @@
       "url": "https://data.bts.gov/d/r495-tyji",
       "period": "Jan 2019 - Aug 2026",
       "rows": 83338,
-      "fetched_at": "2026-11-20T07:45:48Z",
+      "fetched_at": "2026-11-20T08:18:11Z",
       "status": "ok"
     },
     "t100_segments": {
@@ -29,7 +29,7 @@
       "url": "https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FMG&QO_fu146_anzr=Nv4%20Pn44vr45",
       "period": "Jan 2025 - Aug 2026",
       "rows": 400216,
-      "fetched_at": "2026-11-20T07:46:45Z",
+      "fetched_at": "2026-11-20T08:18:12Z",
       "status": "ok"
     },
     "airfare_markets": {
@@ -37,7 +37,7 @@
       "url": "https://datahub.transportation.gov/d/tfrh-tu9e",
       "period": "2023 Q1 - 2026 Q1",
       "rows": 25825,
-      "fetched_at": "2026-11-20T07:46:50Z",
+      "fetched_at": "2026-11-20T08:18:16Z",
       "status": "ok"
     },
     "ontime_monthly": {
@@ -45,9 +45,9 @@
       "url": "https://www.transtats.bts.gov/Tables.asp?QO_VQ=EFD",
       "period": "Oct 2025 - Sep 2026",
       "rows": 4152,
-      "fetched_at": "2026-11-20T07:47:09Z",
+      "fetched_at": "2026-11-20T08:18:33Z",
       "status": "ok"
     }
   },
-  "generated_at": "2026-11-20T07:47:09Z"
+  "generated_at": "2026-11-20T08:18:57Z"
 }
