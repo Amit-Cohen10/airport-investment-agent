@@ -257,3 +257,26 @@ def test_grounding_understands_units_written_in_tool_text():
     payload = [{"notes": ["cap of 12.2 or 12.5 million annual passengers; still 5% below 2019"]}]
     report = check_grounding("The cap is 12.5M passengers and traffic is 5% below 2019.", payload)
     assert report.unverified == []
+
+
+def test_grounding_handles_metric_value_pairs_ordinals_and_ranges():
+    payload = [
+        {
+            "data": {
+                "components": [{"metric": "dep_delay_rate", "value": 0.241, "percentile": 78.4}],
+                "pillars": {"operational_strain": 95.6},
+                "airports": [{"ontime_sample_coverage": 0.9}, {"ontime_sample_coverage": 0.93}],
+                "recovery_vs_2019": 1.344,
+                "seat_growth_ttm": 0.0105,
+            }
+        }
+    ]
+    answer = "Delays hit 24.1% (78th percentile), strain in the 95th percentile, coverage ~90-93%, 134.4% of 2019, seats +1.1%."
+    assert check_grounding(answer, payload).unverified == []
+    assert check_grounding("A derived 96% share.", payload).unverified == ["96%"]
+
+
+def test_ordinal_tolerance_is_one_unit_not_more():
+    payload = [{"data": {"percentile": 95.6}}]
+    assert check_grounding("the 95th percentile", payload).unverified == []
+    assert check_grounding("the 93rd percentile", payload).unverified == ["93rd"]

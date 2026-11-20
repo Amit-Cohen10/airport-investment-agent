@@ -404,3 +404,40 @@ async def test_turn_sticks_to_fallback_provider():
     assert calls == ["primary", "backup", "backup"]  # second step does not retry the primary
     await chain.for_turn().chat([])
     assert calls[-2:] == ["primary", "backup"]  # a new turn tries the primary again
+
+
+def test_anthropic_replays_only_current_turn_blocks_and_drops_temperature():
+    from app.llm.anthropic_client import AnthropicClient, to_anthropic
+
+    thinking = {"type": "thinking", "thinking": "", "signature": "sig"}
+    old_turn = {
+        "role": "assistant",
+        "content": "old answer",
+        "anthropic_blocks": [thinking, {"type": "text", "text": "old answer"}],
+    }
+    current = {
+        "role": "assistant",
+        "content": None,
+        "anthropic_blocks": [thinking, {"type": "tool_use", "id": "t1", "name": "x", "input": {}}],
+        "tool_calls": [{"id": "t1", "type": "function", "function": {"name": "x", "arguments": "{}"}}],
+    }
+    msgs = [
+        {"role": "system", "content": "S"},
+        {"role": "user", "content": "q1"},
+        old_turn,
+        {"role": "user", "content": "q2"},
+        current,
+        {"role": "tool", "tool_call_id": "t1", "content": "{}"},
+        {"role": "user", "content": "write the final answer", "synthetic": True},
+    ]
+    system, out = to_anthropic(msgs)
+    assert system == "S"
+    assert out[1]["content"] == [{"type": "text", "text": "old answer"}]  # earlier turn: no thinking replayed
+    assert out[3]["content"][0] == thinking  # current turn: replayed unchanged
+    assert out[4]["content"][-1] == {"type": "text", "text": "write the final answer"}
+    assert not hasattr(AnthropicClient("k", "m"), "temperature")
+
+
+def test_other_providers_never_see_anthropic_blocks():
+    msgs = [{"role": "assistant", "content": "a", "anthropic_blocks": [{"type": "thinking"}]}]
+    assert "anthropic_blocks" not in OpenAICompatClient("gemini", "k", "m")._sanitize(msgs)[0]

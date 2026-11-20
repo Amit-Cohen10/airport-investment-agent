@@ -18,11 +18,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 NUMBER = re.compile(
-    r"(?<![\w.])(?P<sign>[-+−])?\$?(?P<num>\d{1,3}(?:,\d{3})+|\d+)(?P<dec>\.\d+)?"
-    r"\s?(?P<unit>%|pp|percent|million|billion|thousand|[kKmMbB](?![a-zA-Z]))?"
+    r"(?<![\w.])(?P<sign>[-+−])?\$?(?P<num>\d{1,3}(?:,\d{3})+|\d+)(?P<dec>\.\d+)?(?P<ord>st|nd|rd|th)?"
+    r"\s?(?P<unit>%|pp(?![a-z])|percent(?![a-z])|million|billion|thousand|[kKmMbB](?![a-zA-Z]))?"
 )
 
 
+RANGE_TAIL = re.compile(
+    r"\s?[-–]\s?\d[\d,]*(?:\.\d+)?\s?(?P<unit>%|pp(?![a-z])|percent(?![a-z])|million|billion|thousand|[kKmMbB](?![a-zA-Z]))"
+)
 TEXT_SCALE = {"k": 1e3, "thousand": 1e3, "m": 1e6, "million": 1e6, "b": 1e9, "billion": 1e9}
 
 # Field names whose values are fractions (0.292) that answers show as percent (29.2%).
@@ -63,8 +66,11 @@ def _collect(node: Any, out: list[Evidence], path: str = "") -> None:
         kind = "fraction" if FRACTION_KEY.search(path) else "percent" if PERCENT_KEY.search(path) else "plain"
         out.append(Evidence(float(node), kind, bool(RATIO_KEY.search(path))))
     elif isinstance(node, dict):
+        # {"metric": "dep_delay_rate", "value": 0.241}: the unit is named by the sibling "metric" field.
+        named = str(node.get("metric", "")).lower()
         for k, v in node.items():
-            _collect(v, out, f"{path}.{k}".lower() if path else str(k).lower())
+            key = f"{k}.{named}" if named and k == "value" else str(k)
+            _collect(v, out, f"{path}.{key}".lower() if path else key.lower())
     elif isinstance(node, list):
         for v in node:
             _collect(v, out, path)
@@ -100,8 +106,10 @@ def _candidates(pool: list[Evidence], unit: str) -> list[float]:
     return [e.value for e in pool]
 
 
-def _matches(value: float, signed: bool, decimals: int, candidates: list[float]) -> bool:
-    tol = max(0.5 * 10 ** (-decimals), abs(value) * 0.005)  # display rounding, plus 0.5% slack
+def _matches(value: float, signed: bool, decimals: int, candidates: list[float], ordinal: bool = False) -> bool:
+    tol = max(0.5 * 10 ** (-decimals), abs(value) * 0.005) + 1e-9  # display rounding, 0.5% slack, float eps
+    if ordinal:  # "95th" may be 95.6 truncated: allow exactly one unit
+        tol = 1.0 + 1e-9
     if signed:  # "+5%" must match +0.05, not -0.05
         return any(abs(value - c) <= tol for c in candidates)
     # No explicit sign: direction is usually in words ("5% below 2019"), so compare magnitudes.
@@ -120,6 +128,9 @@ def check_grounding(answer: str, tool_payloads: list[Any]) -> GroundingReport:
         digits = m.group("num").replace(",", "")
         dec = m.group("dec") or ""
         unit = (m.group("unit") or "").lower()
+        if not unit:  # a range like "90-93%" or "1.2-1.5M": the first number takes the second's unit
+            rng = RANGE_TAIL.match(answer, m.end())
+            unit = (rng.group("unit") or "").lower() if rng else ""
         value = float(digits + dec)
         is_year = "," not in m.group("num") and 1900 <= value <= 2100
         if not unit and not dec and (is_year or value <= 10):
@@ -128,6 +139,8 @@ def check_grounding(answer: str, tool_payloads: list[Any]) -> GroundingReport:
         if sign in ("-", "\u2212"):
             value = -value
         report.checked += 1
-        if not _matches(value, sign is not None, len(dec) - 1 if dec else 0, _candidates(pool, unit)):
+        # Ordinals ("95th percentile" for 95.6) are often truncated rather than rounded: allow 1 unit.
+        decimals = len(dec) - 1 if dec else 0
+        if not _matches(value, sign is not None, decimals, _candidates(pool, unit), ordinal=bool(m.group("ord"))):
             report.unverified.append(m.group(0).strip())
     return report

@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     openrouter_model: str = "google/gemma-4-26b-a4b-it:free"
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-sonnet-5-5"
+    anthropic_model: str = "claude-opus-5-5"
+    anthropic_effort: str | None = None  # low | medium | high; None = model default
     llm_temperature: float = 0.1
     # Deterministic keyword planner used when every LLM provider fails (graceful degradation).
     offline_fallback: bool = True

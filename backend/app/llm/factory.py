@@ -102,7 +102,14 @@ def build_llm(settings: Settings, fallback: LLMClient | None = None) -> Resilien
                 OpenAICompatClient("openrouter", settings.openrouter_api_key, settings.openrouter_model, **common)
             )
         elif provider == "anthropic" and settings.anthropic_api_key:
-            clients.append(AnthropicClient(settings.anthropic_api_key, settings.anthropic_model, **common))
+            clients.append(
+                AnthropicClient(
+                    settings.anthropic_api_key,
+                    settings.anthropic_model,
+                    timeout_s=settings.llm_timeout_s,
+                    effort=settings.anthropic_effort,
+                )
+            )
     if fallback is not None:
         clients.append(fallback)
     return ResilientLLM(clients)
